@@ -27,8 +27,9 @@ defmodule ExTinygrad.TestGraphs do
     atol = Keyword.get(opts, :atol, 1.0e-5)
     rtol = Keyword.get(opts, :rtol, 1.0e-4)
 
-    actual_leaves = flatten(actual)
-    expected_leaves = flatten(expected)
+    # Results may be device-resident (ExTinygrad.Backend); bring them to the host.
+    actual_leaves = actual |> flatten() |> Enum.map(&Nx.backend_transfer/1)
+    expected_leaves = expected |> flatten() |> Enum.map(&Nx.backend_transfer/1)
 
     assert length(actual_leaves) == length(expected_leaves),
            "container arity mismatch: #{length(actual_leaves)} vs #{length(expected_leaves)}"

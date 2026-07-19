@@ -9,7 +9,18 @@ defmodule ExTinygrad.Compiler do
   """
   @behaviour Nx.Defn.Compiler
 
-  alias ExTinygrad.{Config, ExecutableCache, Graph, GraphCacheKey, Lowering, Worker}
+  alias ExTinygrad.{
+    Backend,
+    Config,
+    Dtype,
+    ExecutableCache,
+    Graph,
+    GraphCacheKey,
+    Lowering,
+    OutputContainer,
+    Worker
+  }
+
   alias Nx.Defn.Composite
 
   @impl true
@@ -20,6 +31,16 @@ defmodule ExTinygrad.Compiler do
   @impl true
   def __compile__(_key, vars, fun, opts) do
     {roots, output_container} = precompile(fun, vars)
+
+    if roots == [] do
+      # No tensor outputs (e.g. an empty tuple): nothing to compile or execute.
+      fn args_list -> Enum.map(args_list, fn _ -> output_container end) end
+    else
+      compile_graph(roots, output_container, opts)
+    end
+  end
+
+  defp compile_graph(roots, output_container, opts) do
     graph = Lowering.to_graph(roots)
 
     worker = Keyword.get(opts, :worker, :default)
@@ -31,7 +52,8 @@ defmodule ExTinygrad.Compiler do
       executable_id: executable_id,
       graph: graph,
       output_container: output_container,
-      execute_timeout: execute_timeout
+      execute_timeout: execute_timeout,
+      output: Keyword.get(opts, :output, :device)
     }
 
     fn args_list -> Enum.map(args_list, &run_one(&1, ctx)) end
@@ -41,7 +63,7 @@ defmodule ExTinygrad.Compiler do
   def __partitions_options__(opts), do: [opts]
 
   @impl true
-  def __to_backend__(_opts), do: {Nx.BinaryBackend, []}
+  def __to_backend__(opts), do: {Backend, Keyword.take(opts, [:worker])}
 
   # -- compilation --------------------------------------------------------
 
@@ -104,59 +126,77 @@ defmodule ExTinygrad.Compiler do
   # -- runtime ------------------------------------------------------------
 
   defp run_one(params, ctx) do
-    {inputs, blobs} = build_inputs(params, ctx.graph)
+    {inputs, blobs} = build_inputs(params, ctx.graph, ctx.worker)
+    output_mode = Atom.to_string(ctx.output)
 
     {:ok, %{"outputs" => output_specs}, output_blobs} =
       request(
         ctx.worker,
         "execute",
-        %{"executable_id" => ctx.executable_id, "inputs" => inputs, "output" => "host"},
+        %{"executable_id" => ctx.executable_id, "inputs" => inputs, "output" => output_mode},
         blobs,
         timeout: ctx.execute_timeout
       )
 
-    tensors = decode_outputs(output_specs, output_blobs)
-    reconstruct(ctx.output_container, tensors)
+    tensors = decode_outputs(ctx.output, output_specs, output_blobs, ctx.worker)
+    OutputContainer.reconstruct(ctx.output_container, tensors)
   end
 
-  defp build_inputs(params, graph) do
-    {inputs, blobs, _count} =
+  # Build execute inputs. A runtime tensor already resident in this worker (same
+  # generation) is passed by handle; everything else is shipped as a blob.
+  defp build_inputs(params, graph, worker) do
+    generation = Worker.generation(worker)
+
+    {inputs, blobs, _k} =
       Enum.reduce(graph.inputs, {[], [], 0}, fn input, {inputs, blobs, k} ->
         tensor = params |> Enum.fetch!(input["index"]) |> apply([])
-        binary = Nx.to_binary(tensor)
 
-        spec = %{
-          "kind" => "blob",
-          "blob_index" => k,
-          "shape" => input["shape"],
-          "dtype" => input["dtype"]
-        }
+        case tensor.data do
+          %Backend{worker: ^worker, generation: ^generation, handle: handle} ->
+            {[%{"kind" => "handle", "id" => handle} | inputs], blobs, k}
 
-        {[spec | inputs], [binary | blobs], k + 1}
+          %Backend{worker: ^worker, generation: stale} ->
+            raise ExTinygrad.StaleTensorError,
+              worker: worker,
+              tensor_generation: stale,
+              worker_generation: generation
+
+          _ ->
+            spec = %{
+              "kind" => "blob",
+              "blob_index" => k,
+              "shape" => input["shape"],
+              "dtype" => input["dtype"]
+            }
+
+            {[spec | inputs], [Nx.to_binary(tensor) | blobs], k + 1}
+        end
       end)
 
     {Enum.reverse(inputs), Enum.reverse(blobs)}
   end
 
-  defp decode_outputs(output_specs, output_blobs) do
-    Enum.zip_with(output_specs, output_blobs, fn spec, blob ->
-      type = ExTinygrad.Dtype.to_nx!(spec["dtype"])
+  # Device mode: outputs are worker handles wrapped as ExTinygrad.Backend tensors.
+  defp decode_outputs(:device, output_specs, [], worker) do
+    Enum.map(output_specs, fn spec ->
+      type = Dtype.to_nx!(spec["dtype"])
+      shape = List.to_tuple(spec["shape"])
 
-      blob
-      |> Nx.from_binary(type)
-      |> Nx.reshape(List.to_tuple(spec["shape"]))
+      %Nx.Tensor{
+        data: Backend.build(spec["id"], worker, shape, type),
+        shape: shape,
+        type: type,
+        names: List.duplicate(nil, tuple_size(shape))
+      }
     end)
   end
 
-  # Rebuild the output container, swapping each expr leaf's data for the computed
-  # tensor's data (preserving names/shape metadata from the template).
-  defp reconstruct(output_container, tensors) do
-    {result, []} =
-      Composite.traverse(output_container, tensors, fn template, [tensor | rest] ->
-        {%{template | data: tensor.data}, rest}
-      end)
-
-    result
+  # Host mode: outputs are raw blobs wrapped as Nx.BinaryBackend tensors.
+  defp decode_outputs(:host, output_specs, output_blobs, _worker) do
+    Enum.zip_with(output_specs, output_blobs, fn spec, blob ->
+      type = Dtype.to_nx!(spec["dtype"])
+      Nx.reshape(Nx.from_binary(blob, type), List.to_tuple(spec["shape"]))
+    end)
   end
 
   defp request(worker, command, args, blobs, opts) do

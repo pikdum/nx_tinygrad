@@ -28,3 +28,10 @@ All notable changes to this project are documented here. The format is based on
   in-memory `ExTinygrad.ExecutableCache` keyed by graph + device + versions (so
   identical graphs compile once per worker generation), duplicate-input cloning,
   and output cloning for immutability. One execute RPC per invocation.
+- **M4** — `ExTinygrad.Backend` (`Nx.Backend`) keeps tensors resident as worker
+  buffers: `from_binary`/`to_binary`/`backend_copy`/`backend_transfer`/
+  `backend_deallocate`/`inspect` work, all other ops raise (no silent fallback).
+  The compiler defaults to `output: :device`, passes device-resident inputs by
+  handle, and reconstructs arbitrary containers (`ExTinygrad.OutputContainer`).
+  Tensors carry a worker generation; a restart makes them stale
+  (`ExTinygrad.StaleTensorError`). Adds `ExTinygrad.release/1`.

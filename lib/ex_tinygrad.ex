@@ -60,5 +60,19 @@ defmodule ExTinygrad do
     :ok
   end
 
+  @doc """
+  Eagerly release the worker buffers backing a tensor or container of tensors.
+
+  Safe to call on tensors from other backends (a no-op there). Later garbage
+  collection will not double-release.
+  """
+  def release(tensor_or_container) do
+    tensor_or_container
+    |> ExTinygrad.OutputContainer.flatten()
+    |> Enum.each(&Nx.backend_deallocate/1)
+
+    :ok
+  end
+
   defp put_compiler(opts), do: Keyword.put(opts, :compiler, ExTinygrad.Compiler)
 end
