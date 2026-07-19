@@ -20,8 +20,10 @@ defmodule ExTinygrad.Supervisor do
   def init(_opts) do
     children = [
       {Registry, keys: :unique, name: ExTinygrad.WorkerRegistry},
+      ExTinygrad.WorkerIds,
       ExTinygrad.ExecutableCache,
-      ExTinygrad.WorkerSupervisor
+      ExTinygrad.WorkerSupervisor,
+      ExTinygrad.ReleaseReaper
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

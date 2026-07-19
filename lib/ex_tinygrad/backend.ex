@@ -14,9 +14,9 @@ defmodule ExTinygrad.Backend do
   """
   @behaviour Nx.Backend
 
-  defstruct [:handle, :worker, :generation, :shape, :type]
+  defstruct [:ref, :worker, :generation, :shape, :type]
 
-  alias ExTinygrad.{Dtype, Worker}
+  alias ExTinygrad.{Dtype, TensorRef, Worker, WorkerIds}
 
   @eager """
   ExTinygrad eager operations are not supported in version 0.1.
@@ -42,16 +42,24 @@ defmodule ExTinygrad.Backend do
   @impl true
   def to_binary(%Nx.Tensor{data: %__MODULE__{} = b, type: {_, bits}}, limit) do
     ensure_fresh!(b)
-    {_meta, [blob]} = request!(b.worker, "download", %{"id" => b.handle})
+    {_meta, [blob]} = request!(b.worker, "download", %{"id" => handle(b)})
     keep = min(byte_size(blob), limit * div(bits, 8))
     binary_part(blob, 0, keep)
   end
 
   @impl true
-  def backend_deallocate(%Nx.Tensor{data: %__MODULE__{} = b}) do
-    case Worker.request(b.worker, "release", %{"ids" => [b.handle]}) do
-      {:ok, _, _} -> :ok
-      {:error, _} -> :already_deallocated
+  def backend_deallocate(%Nx.Tensor{data: %__MODULE__{ref: ref, worker: worker}}) do
+    # `take/1` claims the reference so a later GC does not release it again.
+    case TensorRef.take(ref) do
+      {_worker_id, generation, handle} ->
+        if generation == Worker.generation(worker) do
+          _ = Worker.request(worker, "release", %{"ids" => [handle]})
+        end
+
+        :ok
+
+      nil ->
+        :already_deallocated
     end
   end
 
@@ -82,14 +90,20 @@ defmodule ExTinygrad.Backend do
 
   @doc false
   def build(handle, worker, shape, type) do
+    generation = Worker.generation(worker)
+    ref = TensorRef.new(WorkerIds.id_for(worker), generation, handle)
+
     %__MODULE__{
-      handle: handle,
+      ref: ref,
       worker: worker,
-      generation: Worker.generation(worker),
+      generation: generation,
       shape: shape,
       type: type
     }
   end
+
+  @doc "The worker buffer handle behind a backend tensor."
+  def handle(%__MODULE__{ref: ref}), do: TensorRef.handle(ref)
 
   defp full_binary(%Nx.Tensor{} = tensor), do: to_binary(tensor, Nx.size(tensor))
 

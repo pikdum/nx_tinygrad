@@ -30,3 +30,6 @@ __pycache__/
 # Editor
 *~
 .DS_Store
+
+# Rust binary artifacts
+/target/

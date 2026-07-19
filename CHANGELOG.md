@@ -35,3 +35,8 @@ All notable changes to this project are documented here. The format is based on
   handle, and reconstructs arbitrary containers (`ExTinygrad.OutputContainer`).
   Tensors carry a worker generation; a restart makes them stale
   (`ExTinygrad.StaleTensorError`). Adds `ExTinygrad.release/1`.
+- **M5** — Rustler NIF (`native/ex_tinygrad_ref`) providing a `TensorRef`
+  resource that owns only reference metadata. Its `Drop` pushes releases onto a
+  native queue; `ExTinygrad.ReleaseReaper` drains it and sends batched releases
+  to workers, discarding stale generations. Explicit release uses `take/1` so GC
+  cannot double-free. Verified by a leak test over 1000 dropped device tensors.

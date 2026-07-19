@@ -152,8 +152,8 @@ defmodule ExTinygrad.Compiler do
         tensor = params |> Enum.fetch!(input["index"]) |> apply([])
 
         case tensor.data do
-          %Backend{worker: ^worker, generation: ^generation, handle: handle} ->
-            {[%{"kind" => "handle", "id" => handle} | inputs], blobs, k}
+          %Backend{worker: ^worker, generation: ^generation} = b ->
+            {[%{"kind" => "handle", "id" => Backend.handle(b)} | inputs], blobs, k}
 
           %Backend{worker: ^worker, generation: stale} ->
             raise ExTinygrad.StaleTensorError,
