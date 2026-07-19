@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import traceback
 
 # Make sibling modules importable when run directly as a script.
@@ -51,18 +52,21 @@ class Handler:
         from tinygrad import Tensor, Device  # noqa: E402
 
         from registry import TensorRegistry
+        from executable import ExecutableRegistry
         from stats import Stats
 
         self.np = np
         self.Tensor = Tensor
         self.Device = Device
         self.registry = TensorRegistry()
+        self.exec_registry = ExecutableRegistry()
         self.stats = Stats()
-        self.executables = {}  # id -> Executable (M3)
 
         self._dispatch = {
             "hello": self.cmd_hello,
             "device_info": self.cmd_device_info,
+            "compile": self.cmd_compile,
+            "execute": self.cmd_execute,
             "upload": self.cmd_upload,
             "download": self.cmd_download,
             "release": self.cmd_release,
@@ -119,6 +123,66 @@ class Handler:
             self._device_info = device_mod.probe(self.parsed_device["spec"])
         return self._device_info, []
 
+    def cmd_compile(self, args, blobs):
+        from compiler import compile_graph
+
+        graph = args["graph"]
+        exec_id = self.exec_registry.allocate_id()
+        t0 = time.perf_counter()
+        executable = compile_graph(exec_id, graph, blobs, self.tg_device)
+        self.exec_registry.put(executable)
+        self.stats.compile_count += 1
+        return {
+            "executable_id": exec_id,
+            "input_specs": executable.input_specs,
+            "output_specs": executable.output_specs,
+            "compile_ms": (time.perf_counter() - t0) * 1000.0,
+            "kernel_count": executable.kernel_count,
+        }, []
+
+    def cmd_execute(self, args, blobs):
+        from dtype import numpy_dtype
+
+        executable = self.exec_registry.get(args["executable_id"])
+        output_mode = args.get("output", "device")
+
+        input_tensors = []
+        for spec in args["inputs"]:
+            kind = spec.get("kind")
+            if kind == "handle":
+                input_tensors.append(self.registry.get(spec["id"]).tensor)
+            elif kind == "blob":
+                arr = (
+                    self.np.frombuffer(blobs[spec["blob_index"]], dtype=numpy_dtype(spec["dtype"]))
+                    .reshape(spec["shape"])
+                    .copy()
+                )
+                input_tensors.append(self.Tensor(arr, device=self.tg_device).realize())
+            else:
+                raise ProtocolError(f"unknown input kind: {kind!r}")
+
+        outputs = executable.run(input_tensors)
+        if outputs:
+            outputs[0].realize(*outputs[1:])
+        self.stats.execute_count += 1
+
+        if output_mode == "host":
+            specs, out_blobs = [], []
+            for tensor, ospec in zip(outputs, executable.output_specs):
+                arr = self.np.ascontiguousarray(tensor.numpy(), dtype=numpy_dtype(ospec["dtype"]))
+                data = arr.tobytes()
+                self.stats.download_bytes += len(data)
+                out_blobs.append(data)
+                specs.append({"shape": ospec["shape"], "dtype": ospec["dtype"]})
+            return {"outputs": specs}, out_blobs
+
+        specs = []
+        for tensor, ospec in zip(outputs, executable.output_specs):
+            nbytes = int(self.np.prod(ospec["shape"], dtype="int64")) * numpy_dtype(ospec["dtype"]).itemsize
+            bid = self.registry.put(tensor.realize(), ospec["shape"], ospec["dtype"], nbytes)
+            specs.append({"id": bid, "shape": ospec["shape"], "dtype": ospec["dtype"]})
+        return {"outputs": specs}, []
+
     def cmd_upload(self, args, blobs):
         from dtype import numpy_dtype
 
@@ -154,7 +218,7 @@ class Handler:
             {
                 "buffer_count": self.registry.count(),
                 "buffer_bytes": self.registry.total_bytes(),
-                "executable_count": len(self.executables),
+                "executable_count": self.exec_registry.count(),
                 "generation": self.generation,
             }
         )

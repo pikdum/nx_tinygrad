@@ -26,6 +26,39 @@ defmodule ExTinygrad do
   @doc "Library version."
   def version, do: unquote(Mix.Project.config()[:version])
 
-  # The public API (jit/2, compile/3, device_info/1, ...) is implemented as
-  # milestones land; see ExTinygrad.Compiler.
+  @doc """
+  JIT-compile `fun` with the ExTinygrad compiler.
+
+  Equivalent to `Nx.Defn.jit(fun, compiler: ExTinygrad.Compiler)` with the given
+  options merged in.
+  """
+  def jit(fun, opts \\ []), do: Nx.Defn.jit(fun, put_compiler(opts))
+
+  @doc "Like `jit/2` but immediately applies `args`."
+  def jit_apply(fun, args, opts \\ []) when is_list(args) do
+    Nx.Defn.jit_apply(fun, args, put_compiler(opts))
+  end
+
+  @doc "Return the worker's `device_info` map."
+  def device_info(opts \\ []) do
+    worker = Keyword.get(opts, :worker, :default)
+    {:ok, info, []} = ExTinygrad.Worker.request(worker, "device_info", %{})
+    info
+  end
+
+  @doc "Return the worker's statistics map."
+  def worker_stats(opts \\ []) do
+    worker = Keyword.get(opts, :worker, :default)
+    {:ok, stats, []} = ExTinygrad.Worker.request(worker, "stats", %{})
+    stats
+  end
+
+  @doc "Block until all queued device work on the worker completes."
+  def synchronize(opts \\ []) do
+    worker = Keyword.get(opts, :worker, :default)
+    {:ok, %{}, []} = ExTinygrad.Worker.request(worker, "synchronize", %{})
+    :ok
+  end
+
+  defp put_compiler(opts), do: Keyword.put(opts, :compiler, ExTinygrad.Compiler)
 end

@@ -16,3 +16,10 @@ All notable changes to this project are documented here. The format is based on
   tracking and crash isolation, worker-side buffer registry and stats, and the
   `hello`, `device_info`, `upload`, `download`, `release`, `stats`, `synchronize`,
   and `shutdown` commands.
+- **M2** — versioned deterministic graph IR (`ExTinygrad.Graph`) with canonical
+  JSON + cache key, Nx `Expr` lowering (`ExTinygrad.Lowering`) covering
+  elementwise/comparison/select/shape/reduction/dot ops, an `Nx.Defn.Compiler`
+  (`ExTinygrad.Compiler`) running the whole graph through the worker in one
+  execute RPC, worker-side graph validation/operations/executable, and the
+  `ExTinygrad.jit/2`, `jit_apply/3`, `device_info/1`, `worker_stats/1`,
+  `synchronize/1` API. CPU results validated against `Nx.BinaryBackend`.
