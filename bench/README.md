@@ -1,34 +1,55 @@
 # Benchmarks
 
 ```sh
-mix run bench/bridge_overhead.exs
-N=512 mix run bench/matmul.exs
-mix run bench/mlp.exs
-DEV=CPU python bench/direct_tinygrad.py
+# Three-way: plain Nx (BinaryBackend) vs Nx→tinygrad CPU vs Nx→tinygrad GPU.
+EX_TINYGRAD_GPU_TESTS=1 mix run bench/nx_backends.exs   # GPU row needs an AMD device
 
-# On the AMD GPU:
-EX_TINYGRAD_BENCH_DEVICE="KFD+AMD:LLVM" N=1024 mix run bench/matmul.exs
-DEV=AMD AMD_LLVM=1 AMD_IFACE=KFD python bench/direct_tinygrad.py
+# Focused scripts.
+mix run bench/matmul.exs
+mix run bench/mlp.exs
+mix run bench/bridge_overhead.exs
+DEV=CPU python bench/direct_tinygrad.py
 ```
 
-Representative numbers on the reference machine (Ryzen 5 5600X, **CPU device**,
-tinygrad 0.12.0). Absolute values vary; the point is the *shape* of the results.
+## Three-way comparison (`bench/nx_backends.exs`)
 
-| Workload (CPU)                         | Result |
-| -------------------------------------- | ------ |
-| 512×512 matmul — `Nx.BinaryBackend`    | ~57,000 ms/call |
-| 512×512 matmul — ex_tinygrad compile   | ~160 ms (first call) |
-| 512×512 matmul — ex_tinygrad warm      | ~1.3 ms/call (resident in+out, replay) |
-| 512×512 matmul — direct tinygrad warm  | ~3.1 ms/call |
-| MLP 128×256→256→64 inference warm      | ~1.7 ms/call |
-| MLP value_and_grad warm                | ~6.4 ms/call |
-| Bridge overhead (trivial graph)        | one execute RPC per call, ~3 ms round trip |
+Reference machine: **Ryzen 5 5600X** (CPU) + **Radeon RX 7900 XT / gfx1100** (GPU),
+tinygrad 0.13, via Benchee. The **same Nx computation** is run three ways:
 
-Notes:
+- **nx (binary, cpu)** — plain Nx on `Nx.BinaryBackend`, eager on the host.
+- **nx→tinygrad (cpu)** — `ExTinygrad.jit`, CPU worker.
+- **nx→tinygrad (gpu)** — `ExTinygrad.jit`, AMD worker (`KFD+AMD:LLVM`).
 
-- Warm ex_tinygrad replay is in the same ballpark as direct tinygrad for the same
-  captured graph (the architecture acceptance target is within ~20%).
-- The huge BinaryBackend matmul time is expected — it is a pure-Elixir O(n³)
-  reference, not an optimized kernel.
-- The first call includes compile + `TinyJit` capture; every later call replays
-  with a single `execute` RPC.
+Methodology: graphs are compiled + captured once (warmup); inputs are resident on
+the target device; each call is a warm replay followed by a device `synchronize`
+so the number reflects **real compute + the Elixir↔Python bridge**, not tinygrad's
+lazy scheduling. (Measuring via `.numpy()` instead would drown everything in the
+result download; measuring without a sync would only time enqueuing.)
+
+Average time per call (lower is better):
+
+| Workload                                   | plain Nx (binary) | tinygrad CPU | tinygrad GPU |
+| ------------------------------------------ | ----------------: | -----------: | -----------: |
+| matmul 64×64 (tiny)                        |          27.1 ms  |     1.20 ms  |     1.28 ms  |
+| elementwise ×10 fused, 512×512             |           203 ms  |     4.80 ms  |     1.25 ms  |
+| elementwise ×10 fused, 4096×4096           |    (too slow)     |    85.1 ms   |     1.45 ms  |
+| MLP inference, batch 64 (128→128→32)       |           137 ms  |     1.86 ms  |     1.41 ms  |
+| MLP value_and_grad, batch 64               |           308 ms  |     5.87 ms  |     5.05 ms  |
+| matmul 1024×1024                           |    (too slow)     |    36.9 ms   |     1.32 ms  |
+
+## What the numbers say
+
+- **Going through tinygrad beats plain Nx by 22–160×** wherever `BinaryBackend`
+  is fast enough to measure. `Nx.BinaryBackend` is a pure-Elixir interpreter with
+  per-operation overhead; tinygrad fuses the whole graph into compiled kernels.
+- **The GPU wins big on compute-heavy work** — 28× over tinygrad-CPU on a 1024²
+  matmul, 59× on a 4096² fused elementwise chain.
+- **Small graphs are bridge-bound.** There is a ~1.2 ms floor per call — one
+  `execute` and one `synchronize` round trip across the Erlang Port to Python.
+  For tiny ops (64² matmul, small MLP) that floor dominates, so CPU and GPU look
+  the same and the GPU's compute advantage is hidden. Keep tensors resident and
+  make the graphs meaty to amortize it.
+
+The takeaway matches the project's thesis: Nx supplies the API and autograd,
+tinygrad supplies fused compiled kernels and the accelerator — and the win grows
+with the amount of work per `execute`.
