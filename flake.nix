@@ -1,10 +1,10 @@
 {
   description = "ex_tinygrad — an Elixir Nx compiler and tensor backend using tinygrad (AMD, native KFD + LLVM, no ROCm)";
 
-  # Pinned to the same nixpkgs revision the host system tracks, so we reuse its
-  # binary cache. Provides Elixir 1.20 / OTP 29 via beam29Packages and a
-  # ROCm-free tinygrad.
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/07800bee2b362f6c73fe17cb1593a260c5e183c6";
+  # nixos-unstable: Elixir 1.20 / OTP 29 (proper releases) via beam29Packages and
+  # a ROCm-free tinygrad. We don't depend on ROCm, so there's no heavy closure to
+  # cache-match against — the only thing that rebuilds is pure-Python tinygrad.
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
     { self, nixpkgs }:

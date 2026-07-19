@@ -4,15 +4,10 @@ detection for the ex_tinygrad worker.
 Logical device strings follow the spec: ``[<IFACE>+]<BACKEND>[:<RENDERER>]``,
 e.g. ``KFD+AMD:LLVM``, ``CPU``, ``AMD``.
 
-IMPORTANT: tinygrad 0.12.0's ``Device[...]`` does NOT accept ``KFD+AMD:LLVM``
-literally — it splits on ``:`` and treats the prefix (``KFD+AMD``) as the device
-class name, which does not exist. So we translate the logical string into a
-concrete tinygrad device name plus environment variables here.
-
-Some of those environment variables (notably ``AMD_LLVM`` and ``AMD_IFACE``) are
-read by tinygrad as ContextVars *at import time*, so they must be applied BEFORE
-tinygrad is imported. Callers must therefore call :func:`apply_env` before the
-first ``import tinygrad``.
+On tinygrad 0.13 the interface prefix and renderer suffix are part of the ``DEV``
+string itself, so ``KFD+AMD:LLVM`` is a native device string: we set it as ``DEV``
+verbatim and create tensors on the backend (``AMD``). ``DEV`` is read by tinygrad
+at import time, so :func:`apply_env` must run before the first ``import tinygrad``.
 """
 from __future__ import annotations
 
@@ -48,15 +43,14 @@ def parse_device(spec: str | None) -> dict:
     iface = iface.upper() if iface else None
     renderer = renderer.upper() if renderer else None
 
-    env: dict[str, str] = {}
     if backend == "AMD":
-        # Never default to PCI/USB — those interfaces can unbind the card from
-        # the amdgpu driver. Force KFD unless an interface was requested.
-        env["AMD_IFACE"] = iface or "KFD"
-        iface = env["AMD_IFACE"]
-        if renderer in (None, "LLVM"):
-            env["AMD_LLVM"] = "1"
-            renderer = "LLVM"
+        # Never default to PCI/USB — those can unbind the card from amdgpu. Force
+        # KFD + the LLVM renderer. The whole thing is the DEV string on 0.13.
+        iface = iface or "KFD"
+        renderer = renderer or "LLVM"
+        dev = f"{iface}+AMD:{renderer}"
+    else:
+        dev = (f"{iface}+" if iface else "") + backend + (f":{renderer}" if renderer else "")
 
     return {
         "spec": spec,
@@ -64,15 +58,15 @@ def parse_device(spec: str | None) -> dict:
         "interface": iface,
         "renderer": renderer,
         "tinygrad_device": backend,
-        "env": env,
+        "dev": dev,
+        "env": {},
     }
 
 
 def apply_env(parsed: dict) -> None:
-    """Apply the device's environment. Existing values win (Elixir may have set
-    them on the Port already)."""
-    for key, value in parsed["env"].items():
-        os.environ.setdefault(key, value)
+    """Set DEV before tinygrad is imported. An existing value (set by Elixir on
+    the Port) wins."""
+    os.environ.setdefault("DEV", parsed["dev"])
 
 
 def loaded_rocm_libraries() -> dict:

@@ -7,23 +7,23 @@ Living record of pinned versions and milestone progress. Updated as work lands.
 | Thing                        | Value                                             |
 | ---------------------------- | ------------------------------------------------- |
 | Nx version                   | 0.13.0                                            |
-| tinygrad version             | 0.12.0 (nixpkgs `python3Packages.tinygrad`)       |
-| tinygrad commit              | v0.12.0 tag (via nixpkgs)                          |
-| Python version               | 3.13.12                                           |
-| LLVM version                 | 21.1.x (nixpkgs `llvmPackages.llvm`, AMD_LLVM)    |
-| Elixir version               | 1.20.0-rc.4 (`beam29Packages.elixir_1_20`)        |
-| OTP version                  | 29.0-rc3 (`beam29Packages.erlang`)                |
-| Rust version                 | 1.94.1 (nixpkgs `rustc`)                          |
-| nixpkgs rev                  | 07800bee2b362f6c73fe17cb1593a260c5e183c6          |
+| tinygrad version             | 0.13.0 (nixpkgs `python3Packages.tinygrad`)       |
+| Python version               | 3.14.6                                            |
+| LLVM version                 | nixpkgs `llvmPackages.llvm` (AMD LLVM renderer)  |
+| Elixir version               | 1.20.2 (`beam29Packages.elixir_1_20`)             |
+| OTP version                  | 29.0.3 (`beam29Packages.erlang`)                  |
+| Rust version                 | 1.96.1 (nixpkgs `rustc`)                          |
+| nixpkgs                      | nixos-unstable (locked in flake.lock)             |
 | Tested GPU                   | AMD Radeon RX 7900 XT (gfx1100, RDNA3)            |
-| Tested tinygrad device       | `KFD+AMD:LLVM` -> tinygrad `AMD` + AMD_LLVM=1     |
+| Tested tinygrad device       | `DEV=KFD+AMD:LLVM` (native)                       |
 
 ## Device string note
 
-tinygrad 0.12.0's `Device[...]` does not accept `"KFD+AMD:LLVM"` literally (it
-splits on `:` and treats the prefix as a device class). ex_tinygrad translates
-the logical string into `tinygrad_device = "AMD"` plus env
-`AMD_IFACE=KFD, AMD_LLVM=1`. See `ExTinygrad.Device` / `priv/worker/device.py`.
+On tinygrad 0.13, `KFD+AMD:LLVM` is a **native** `DEV` string: the interface
+prefix (`KFD+`) and renderer suffix (`:LLVM`) are part of it. ex_tinygrad passes
+it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
+`AMD_IFACE`/`AMD_LLVM` environment variables are deprecated in 0.13. See
+`ExTinygrad.Device` / `priv/worker/device.py`.
 
 ## Milestones
 

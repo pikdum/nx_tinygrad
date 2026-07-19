@@ -20,16 +20,24 @@ defmodule ExTinygrad.Device do
           interface: String.t() | nil,
           renderer: String.t() | nil,
           tinygrad_device: String.t(),
+          dev: String.t(),
           env: %{String.t() => String.t()}
         }
 
   @doc """
   Parse a logical device string.
 
+  On tinygrad 0.13 the interface prefix and renderer suffix are part of the `DEV`
+  string itself, so `"KFD+AMD:LLVM"` is passed through as `DEV` verbatim; the
+  backend (`"AMD"`) is what tensors are created on.
+
   ## Examples
 
-      iex> ExTinygrad.Device.parse("KFD+AMD:LLVM").env
-      %{"AMD_IFACE" => "KFD", "AMD_LLVM" => "1"}
+      iex> ExTinygrad.Device.parse("KFD+AMD:LLVM").dev
+      "KFD+AMD:LLVM"
+
+      iex> ExTinygrad.Device.parse("AMD").dev
+      "KFD+AMD:LLVM"
 
       iex> ExTinygrad.Device.parse("CPU").tinygrad_device
       "CPU"
@@ -50,7 +58,7 @@ defmodule ExTinygrad.Device do
         [backend] -> {String.upcase(backend), nil}
       end
 
-    {interface, renderer, env} = configure(backend, iface, renderer)
+    {interface, renderer, dev} = configure(backend, iface, renderer)
 
     %{
       spec: spec,
@@ -58,23 +66,27 @@ defmodule ExTinygrad.Device do
       interface: interface,
       renderer: renderer,
       tinygrad_device: backend,
-      env: env
+      dev: dev,
+      env: %{}
     }
   end
 
-  # AMD: never default to PCI/USB (they can unbind the amdgpu driver). Force KFD
-  # and the LLVM renderer unless the caller asked for something specific.
+  # AMD: default to the KFD interface (never PCI/USB, which can unbind amdgpu) and
+  # the LLVM renderer. The whole thing is the DEV string on tinygrad 0.13.
   defp configure("AMD", iface, renderer) do
     interface = iface || "KFD"
     renderer = renderer || "LLVM"
-
-    env = %{"AMD_IFACE" => interface}
-    env = if renderer == "LLVM", do: Map.put(env, "AMD_LLVM", "1"), else: env
-
-    {interface, renderer, env}
+    {interface, renderer, "#{interface}+AMD:#{renderer}"}
   end
 
-  defp configure(_backend, iface, renderer), do: {iface, renderer, %{}}
+  defp configure(backend, iface, renderer) do
+    dev =
+      [iface && "#{iface}+", backend, renderer && ":#{renderer}"]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join()
+
+    {iface, renderer, dev}
+  end
 
   defp normalize(nil), do: "CPU"
 

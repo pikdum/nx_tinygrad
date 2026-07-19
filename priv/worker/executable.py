@@ -92,14 +92,24 @@ class Executable:
             if list(out.shape) != list(spec["shape"]):
                 raise CompileError(f"captured output shape {list(out.shape)} != {spec['shape']}")
 
-        self.kernel_count = len(getattr(self._jit, "jit_cache", []))
+        self.kernel_count = self._count_kernels()
+
+    def _count_kernels(self) -> int:
+        # tinygrad's captured JIT stores its kernel/copy calls in linear.src.
+        captured = getattr(self._jit, "captured", None)
+        try:
+            return len(captured.linear.src) if captured is not None else 0
+        except Exception:  # noqa: BLE001
+            return 0
 
     def _dedup(self, inputs: list[Tensor]) -> list[Tensor]:
         # TinyJit rejects the same underlying buffer in multiple input slots.
-        # Clone repeats to unique realized buffers.
+        # Realize first so a clone gets a genuinely distinct buffer, then clone
+        # repeated occurrences.
         seen: set[int] = set()
         result = []
         for tensor in inputs:
+            tensor = tensor.realize()
             if id(tensor) in seen:
                 result.append(tensor.clone().realize())
                 self.duplicate_input_clones += 1

@@ -3,24 +3,25 @@ defmodule ExTinygrad.DeviceTest do
 
   alias ExTinygrad.Device
 
-  test "KFD+AMD:LLVM maps to tinygrad AMD with KFD interface and LLVM renderer" do
+  test "KFD+AMD:LLVM is a native tinygrad DEV string; backend is AMD" do
     parsed = Device.parse("KFD+AMD:LLVM")
     assert parsed.tinygrad_device == "AMD"
     assert parsed.interface == "KFD"
     assert parsed.renderer == "LLVM"
-    assert parsed.env == %{"AMD_IFACE" => "KFD", "AMD_LLVM" => "1"}
+    assert parsed.dev == "KFD+AMD:LLVM"
+    assert parsed.env == %{}
   end
 
   test "bare AMD defaults to KFD + LLVM (never PCI)" do
     parsed = Device.parse("AMD")
     assert parsed.interface == "KFD"
-    assert parsed.env["AMD_IFACE"] == "KFD"
-    assert parsed.env["AMD_LLVM"] == "1"
+    assert parsed.dev == "KFD+AMD:LLVM"
   end
 
-  test "CPU has no special environment" do
+  test "CPU maps to DEV=CPU with no extra environment" do
     parsed = Device.parse("CPU")
     assert parsed.tinygrad_device == "CPU"
+    assert parsed.dev == "CPU"
     assert parsed.env == %{}
   end
 

@@ -177,7 +177,7 @@ defmodule ExTinygrad.Worker do
 
     env =
       %{
-        "DEV" => parsed.tinygrad_device,
+        "DEV" => parsed.dev,
         "EX_TINYGRAD_DEVICE" => parsed.spec,
         "EX_TINYGRAD_GENERATION" => Integer.to_string(generation),
         "DEBUG" => Integer.to_string(Config.debug()),

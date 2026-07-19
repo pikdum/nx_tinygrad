@@ -15,18 +15,18 @@ Verified on an **AMD Radeon RX 7900 XT (gfx1100, RDNA3)**.
 
 ## Device string
 
-The spec's device string is `KFD+AMD:LLVM`. tinygrad 0.12.0's `Device[...]` does
-**not** accept that literally (it splits on `:` and treats the prefix as a device
-class). `ExTinygrad.Device` translates it:
+On tinygrad 0.13, `KFD+AMD:LLVM` is a **native** `DEV` string — the interface
+prefix (`KFD+`) and renderer suffix (`:LLVM`) are part of it:
 
 ```text
-KFD+AMD:LLVM  ->  tinygrad device "AMD"
-                  env AMD_IFACE=KFD   (force KFD; never PCI/USB, which can unbind amdgpu)
-                  env AMD_LLVM=1      (compile with libLLVM instead of comgr)
+KFD+AMD:LLVM  ->  DEV=KFD+AMD:LLVM   (interface KFD, backend AMD, renderer LLVM)
+                  tensors are created on backend "AMD"
 ```
 
-These env vars are read by tinygrad as ContextVars at import time, so the worker
-Port is started with them already set.
+`ExTinygrad.Device` passes the string through as `DEV` (defaulting a bare `AMD`
+to KFD + LLVM; never PCI/USB, which can unbind amdgpu). `DEV` is read at import
+time, so the worker Port is started with it already set. The old `AMD_IFACE` /
+`AMD_LLVM` environment variables are deprecated in tinygrad 0.13.
 
 `HSA_OVERRIDE_GFX_VERSION` is deliberately **not** set.
 
@@ -57,7 +57,7 @@ lifecycle test.
 
 ## Note on the LLVM vs comgr path
 
-nixpkgs' `python3Packages.tinygrad` with `rocmSupport = true` (the comgr path) is
-currently broken: its patch fixes `comgr.py` but not `comgr_3.py`, which
-tinygrad 0.12.0 actually uses. The LLVM path (`AMD_LLVM=1`) sidesteps this
-entirely and is what ex_tinygrad uses by default.
+ex_tinygrad uses the LLVM renderer (the `:LLVM` in `KFD+AMD:LLVM`), so kernels are
+compiled with libLLVM and the entire ROCm/HIP/comgr stack is unnecessary. We
+build plain `python3Packages.tinygrad` (no `rocmSupport`), keeping the closure
+ROCm-free.

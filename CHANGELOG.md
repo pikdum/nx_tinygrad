@@ -9,6 +9,11 @@ First release: an `Nx.Defn` compiler and tensor backend that runs whole Nx
 graphs on tinygrad, verified end-to-end on an AMD RX 7900 XT through
 `KFD+AMD:LLVM` with no ROCm in the closure.
 
+Toolchain (nixos-unstable): Elixir 1.20.2 / OTP 29.0.3, tinygrad 0.13.0,
+Python 3.14, Rust 1.96, Nx 0.13. On tinygrad 0.13 `KFD+AMD:LLVM` is a native
+`DEV` string (interface prefix + renderer suffix), so `ExTinygrad.Device` passes
+it straight through — the deprecated `AMD_IFACE`/`AMD_LLVM` env vars are gone.
+
 ### Added
 
 - **M0** — Nix flake providing Elixir 1.20 / OTP 29, Rust, and a ROCm-free

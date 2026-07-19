@@ -33,7 +33,6 @@ def configure_environment() -> dict:
     spec = os.environ.get("EX_TINYGRAD_DEVICE") or os.environ.get("DEV") or "CPU"
     parsed = device_mod.parse_device(spec)
     device_mod.apply_env(parsed)
-    os.environ.setdefault("DEV", parsed["tinygrad_device"])
     return parsed
 
 
