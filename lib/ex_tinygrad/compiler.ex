@@ -49,7 +49,7 @@ defmodule ExTinygrad.Compiler do
   defp compile_graph(roots, output_container, opts) do
     graph = Lowering.to_graph(roots)
 
-    worker = Keyword.get(opts, :worker, :default)
+    worker = resolve_worker(opts)
     execute_timeout = Keyword.get(opts, :execute_timeout, Config.execute_timeout())
     executable_id = ensure_compiled(worker, graph, opts)
 
@@ -70,6 +70,16 @@ defmodule ExTinygrad.Compiler do
 
   @impl true
   def __to_backend__(opts), do: {Backend, Keyword.take(opts, [:worker])}
+
+  # An explicit `:worker` wins; otherwise `:device` routes to (and starts) a
+  # worker for that device; otherwise the :default worker.
+  defp resolve_worker(opts) do
+    cond do
+      worker = Keyword.get(opts, :worker) -> worker
+      device = Keyword.get(opts, :device) -> ExTinygrad.WorkerSupervisor.worker_for_device(device)
+      true -> :default
+    end
+  end
 
   # -- compilation --------------------------------------------------------
 

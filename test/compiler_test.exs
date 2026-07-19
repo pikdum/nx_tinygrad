@@ -76,6 +76,12 @@ defmodule ExTinygrad.CompilerTest do
     assert_close(ExTinygrad.jit(&G.repeated_input/1).(x), G.repeated_input(x))
   end
 
+  test "device: option routes to a worker for that device" do
+    x = Nx.iota({2, 3}, type: :f32)
+    result = ExTinygrad.jit(&G.reduction/1, device: "CPU").(x)
+    assert_close(result, G.reduction(x))
+  end
+
   test "compiling twice yields equal results (idempotent)" do
     x = Nx.iota({2, 3}, type: :f32)
     r1 = ExTinygrad.jit(&G.reduction/1).(x)

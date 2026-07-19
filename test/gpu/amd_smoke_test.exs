@@ -52,4 +52,19 @@ defmodule ExTinygrad.GPU.AmdSmokeTest do
     assert_close(v, ev, atol: 1.0e-4, rtol: 1.0e-3)
     assert_close(g, eg, atol: 1.0e-4, rtol: 1.0e-3)
   end
+
+  # The exact definition-of-done program from the spec, routed purely by
+  # `device: "KFD+AMD:LLVM"` (no explicit worker).
+  test "definition of done: value_and_grad via device: string" do
+    w = Nx.tensor([[0.1, -0.2], [0.3, 0.05], [-0.1, 0.2]])
+    x = Nx.tensor([[0.5, -0.3, 0.8], [0.1, 0.2, -0.4]])
+    targets = Nx.tensor([[0.3, -0.2], [0.1, 0.4]])
+
+    compiled = ExTinygrad.jit(&G.linear_value_and_grad/3, device: "KFD+AMD:LLVM")
+    {loss, gradients} = compiled.(w, x, targets)
+
+    {eloss, egradients} = G.linear_value_and_grad(w, x, targets)
+    assert_close(loss, eloss, atol: 1.0e-4, rtol: 1.0e-3)
+    assert_close(gradients, egradients, atol: 1.0e-4, rtol: 1.0e-3)
+  end
 end
