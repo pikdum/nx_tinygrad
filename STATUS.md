@@ -33,8 +33,8 @@ the logical string into `tinygrad_device = "AMD"` plus env
 - [x] **M3** — TinyJit capture/replay, executable cache, one execute RPC/call (53 Elixir + 25 Python tests).
 - [x] **M4** — device tensor backend, device-resident I/O, output containers, stale-tensor errors (66 Elixir tests).
 - [x] **M5** — Rustler tensor-ref resource, GC-triggered release queue, reaper, leak test (68 Elixir tests).
-- [ ] **M6** — AMD GPU path.
-- [ ] **M7** — Nx autograd + MLP.
+- [x] **M7** — Nx `value_and_grad` parity, MLP inference + training step (CPU, 4 tests).
+- [x] **M6** — AMD `KFD+AMD:LLVM` path: smoke, parity, persistence, no-ROCm-loaded (8 GPU tests on RX 7900 XT).
 - [ ] **M8** — docs, benchmarks, release 0.1.0.
 
 ## Commands / results

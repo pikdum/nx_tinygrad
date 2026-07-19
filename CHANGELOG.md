@@ -40,3 +40,13 @@ All notable changes to this project are documented here. The format is based on
   native queue; `ExTinygrad.ReleaseReaper` drains it and sends batched releases
   to workers, discarding stale generations. Explicit release uses `take/1` so GC
   cannot double-free. Verified by a leak test over 1000 dropped device tensors.
+- **M7** — autograd via Nx: `Nx.Defn.value_and_grad` graphs lower and execute
+  with the existing op set; validated against `Nx.BinaryBackend` for a
+  linear+tanh loss and a 2-layer MLP (inference, gradients, and a loss-reducing
+  gradient step).
+- **M6** — AMD `KFD+AMD:LLVM` path verified end-to-end on an RX 7900 XT
+  (gfx1100): device_info, f32 elementwise/matmul/softmax parity, MLP
+  value_and_grad parity, device-resident persistence + output immutability, a
+  10k-iteration buffer-lifecycle test, and a `/proc/self/maps` check that no
+  ROCm/HIP/comgr library is loaded. GPU tests are gated behind
+  `EX_TINYGRAD_GPU_TESTS=1`.

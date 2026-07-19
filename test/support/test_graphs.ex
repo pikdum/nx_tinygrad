@@ -18,6 +18,25 @@ defmodule ExTinygrad.TestGraphs do
     e / Nx.sum(e, axes: [1], keep_axes: true)
   end
 
+  # --- MLP / autograd ---
+  defn mlp_predict(params, x) do
+    {w1, b1, w2, b2} = params
+    h = Nx.tanh(Nx.dot(x, w1) + b1)
+    Nx.dot(h, w2) + b2
+  end
+
+  defn(mlp_loss(params, x, y), do: Nx.mean(Nx.pow(mlp_predict(params, x) - y, 2)))
+
+  defn mlp_value_and_grad(params, x, y) do
+    Nx.Defn.value_and_grad(params, fn p -> mlp_loss(p, x, y) end)
+  end
+
+  defn linear_value_and_grad(w, x, targets) do
+    Nx.Defn.value_and_grad(w, fn w ->
+      Nx.mean(Nx.pow(Nx.tanh(Nx.dot(x, w)) - targets, 2))
+    end)
+  end
+
   defn(multi_output(x), do: {Nx.sum(x), Nx.reduce_max(x)})
   defn(nested_container(x, y), do: %{sum: Nx.add(x, y), parts: {Nx.subtract(x, y), {Nx.multiply(x, y)}}})
   defn(repeated_input(x), do: Nx.add(x, x))
