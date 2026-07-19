@@ -30,7 +30,7 @@ the logical string into `tinygrad_device = "AMD"` plus env
 - [x] **M0** — flake, scaffolding, device probe, no-ROCm closure check.
 - [x] **M1** — framed protocol + supervised CPU worker (24 Elixir + 11 Python tests).
 - [x] **M2** — graph IR + Nx lowering, CPU end-to-end, BinaryBackend parity (44 Elixir + 23 Python tests).
-- [ ] **M3** — TinyJit capture/replay + caching.
+- [x] **M3** — TinyJit capture/replay, executable cache, one execute RPC/call (53 Elixir + 25 Python tests).
 - [ ] **M4** — device tensor backend + output containers.
 - [ ] **M5** — Rustler tensor-ref + release reaper.
 - [ ] **M6** — AMD GPU path.

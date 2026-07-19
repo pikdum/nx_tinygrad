@@ -9,7 +9,7 @@ defmodule ExTinygrad.Compiler do
   """
   @behaviour Nx.Defn.Compiler
 
-  alias ExTinygrad.{Config, Graph, Lowering, Worker}
+  alias ExTinygrad.{Config, ExecutableCache, Graph, GraphCacheKey, Lowering, Worker}
   alias Nx.Defn.Composite
 
   @impl true
@@ -23,13 +23,8 @@ defmodule ExTinygrad.Compiler do
     graph = Lowering.to_graph(roots)
 
     worker = Keyword.get(opts, :worker, :default)
-    compile_timeout = Keyword.get(opts, :compile_timeout, Config.compile_timeout())
     execute_timeout = Keyword.get(opts, :execute_timeout, Config.execute_timeout())
-
-    {:ok, %{"executable_id" => executable_id}, []} =
-      request(worker, "compile", %{"graph" => Graph.to_wire(graph)}, Graph.blobs(graph),
-        timeout: compile_timeout
-      )
+    executable_id = ensure_compiled(worker, graph, opts)
 
     ctx = %{
       worker: worker,
@@ -63,6 +58,47 @@ defmodule ExTinygrad.Compiler do
       end)
 
     {Enum.reverse(roots_rev), output_container}
+  end
+
+  # Compile the graph in the worker, reusing a cached executable when the graph
+  # matches and the worker is still on the same generation.
+  defp ensure_compiled(worker, graph, opts) do
+    if Keyword.get(opts, :cache, Config.cache?()) do
+      info = Worker.info(worker)
+      generation = Worker.generation(worker)
+
+      key =
+        GraphCacheKey.compute(graph,
+          device: info["device"],
+          tinygrad_commit: info["tinygrad_version"]
+        )
+
+      case ExecutableCache.get(key) do
+        %{generation: ^generation, executable_id: id} ->
+          id
+
+        _ ->
+          id = compile_worker(worker, graph, opts)
+          ExecutableCache.put(key, %{generation: generation, executable_id: id})
+          id
+      end
+    else
+      compile_worker(worker, graph, opts)
+    end
+  end
+
+  defp compile_worker(worker, graph, opts) do
+    args = %{
+      "graph" => Graph.to_wire(graph),
+      "validate_capture" => Keyword.get(opts, :validate_capture, true)
+    }
+
+    {:ok, %{"executable_id" => id}, []} =
+      request(worker, "compile", args, Graph.blobs(graph),
+        timeout: Keyword.get(opts, :compile_timeout, Config.compile_timeout())
+      )
+
+    id
   end
 
   # -- runtime ------------------------------------------------------------

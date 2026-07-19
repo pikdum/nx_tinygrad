@@ -20,6 +20,7 @@ defmodule ExTinygrad.Supervisor do
   def init(_opts) do
     children = [
       {Registry, keys: :unique, name: ExTinygrad.WorkerRegistry},
+      ExTinygrad.ExecutableCache,
       ExTinygrad.WorkerSupervisor
     ]
 

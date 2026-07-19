@@ -65,6 +65,43 @@ def test_validation_rejects_unknown_op():
         compile_graph(4, graph, [], "CPU")
 
 
+def test_tinyjit_capture_and_replay():
+    graph = {
+        "version": 1,
+        "inputs": [
+            {"id": 0, "index": 0, "shape": [2], "dtype": "f32"},
+            {"id": 1, "index": 1, "shape": [2], "dtype": "f32"},
+        ],
+        "constants": [],
+        "nodes": [{"id": 2, "op": "multiply", "inputs": [0, 1], "attrs": {}, "shape": [2], "dtype": "f32"}],
+        "outputs": [{"node": 2, "shape": [2], "dtype": "f32"}],
+    }
+    ex = compile_graph(10, graph, [], "CPU", validate_capture=True)
+    assert ex.kernel_count >= 1
+    [o1] = ex.run([_T([1, 2]), _T([3, 4])])
+    assert np.allclose(o1.numpy(), [3, 8])
+    [o2] = ex.run([_T([10, 20]), _T([2, 2])])
+    assert np.allclose(o2.numpy(), [20, 40])
+
+
+def test_duplicate_input_cloning():
+    graph = {
+        "version": 1,
+        "inputs": [
+            {"id": 0, "index": 0, "shape": [3], "dtype": "f32"},
+            {"id": 1, "index": 1, "shape": [3], "dtype": "f32"},
+        ],
+        "constants": [],
+        "nodes": [{"id": 2, "op": "add", "inputs": [0, 1], "attrs": {}, "shape": [3], "dtype": "f32"}],
+        "outputs": [{"node": 2, "shape": [3], "dtype": "f32"}],
+    }
+    ex = compile_graph(11, graph, [], "CPU")
+    same = _T([1, 2, 3])
+    [out] = ex.run([same, same])
+    assert ex.duplicate_input_clones == 1
+    assert np.allclose(out.numpy(), [2, 4, 6])
+
+
 def test_validation_rejects_dangling_reference():
     graph = {
         "version": 1,

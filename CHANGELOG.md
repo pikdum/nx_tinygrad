@@ -23,3 +23,8 @@ All notable changes to this project are documented here. The format is based on
   execute RPC, worker-side graph validation/operations/executable, and the
   `ExTinygrad.jit/2`, `jit_apply/3`, `device_info/1`, `worker_stats/1`,
   `synchronize/1` API. CPU results validated against `Nx.BinaryBackend`.
+- **M3** — TinyJit-backed executables: the graph function is captured
+  (warmup/capture/validate) at compile time and replayed on execute. Adds an
+  in-memory `ExTinygrad.ExecutableCache` keyed by graph + device + versions (so
+  identical graphs compile once per worker generation), duplicate-input cloning,
+  and output cloning for immutability. One execute RPC per invocation.

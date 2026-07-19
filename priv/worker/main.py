@@ -127,9 +127,10 @@ class Handler:
         from compiler import compile_graph
 
         graph = args["graph"]
+        validate_capture = bool(args.get("validate_capture", True))
         exec_id = self.exec_registry.allocate_id()
         t0 = time.perf_counter()
-        executable = compile_graph(exec_id, graph, blobs, self.tg_device)
+        executable = compile_graph(exec_id, graph, blobs, self.tg_device, validate_capture=validate_capture)
         self.exec_registry.put(executable)
         self.stats.compile_count += 1
         return {
@@ -161,12 +162,14 @@ class Handler:
             else:
                 raise ProtocolError(f"unknown input kind: {kind!r}")
 
+        clones_before = executable.duplicate_input_clones
         outputs = executable.run(input_tensors)
-        if outputs:
-            outputs[0].realize(*outputs[1:])
+        self.stats.duplicate_input_clones += executable.duplicate_input_clones - clones_before
         self.stats.execute_count += 1
 
         if output_mode == "host":
+            # numpy() copies to the host immediately, detaching from the reused
+            # JIT output buffer — safe without an extra device clone.
             specs, out_blobs = [], []
             for tensor, ospec in zip(outputs, executable.output_specs):
                 arr = self.np.ascontiguousarray(tensor.numpy(), dtype=numpy_dtype(ospec["dtype"]))
@@ -176,10 +179,13 @@ class Handler:
                 specs.append({"shape": ospec["shape"], "dtype": ospec["dtype"]})
             return {"outputs": specs}, out_blobs
 
+        # Device mode: clone each output to a fresh buffer so the returned handle
+        # is immutable across later executions.
         specs = []
         for tensor, ospec in zip(outputs, executable.output_specs):
+            cloned = tensor.clone().realize()
             nbytes = int(self.np.prod(ospec["shape"], dtype="int64")) * numpy_dtype(ospec["dtype"]).itemsize
-            bid = self.registry.put(tensor.realize(), ospec["shape"], ospec["dtype"], nbytes)
+            bid = self.registry.put(cloned, ospec["shape"], ospec["dtype"], nbytes)
             specs.append({"id": bid, "shape": ospec["shape"], "dtype": ospec["dtype"]})
         return {"outputs": specs}, []
 
