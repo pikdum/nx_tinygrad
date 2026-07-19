@@ -1,13 +1,19 @@
 defmodule ExTinygrad.Compiler do
   @moduledoc """
   `Nx.Defn.Compiler` that lowers an entire defn expression to the graph IR, sends
-  it once to a Python worker, and executes it through tinygrad.
+  it once to a Python worker, and executes it through tinygrad (one execute RPC
+  per invocation).
 
-  For M2 this operates in host mode: inputs are shipped as blobs and outputs come
-  back as `Nx.BinaryBackend` tensors, validated against `Nx.BinaryBackend`. M3
-  adds caching + TinyJit capture/replay; M4 adds device-resident tensors.
+  The graph is compiled and captured once (cached by `ExTinygrad.ExecutableCache`)
+  and replayed thereafter. By default outputs are device-resident
+  (`ExTinygrad.Backend`); pass `output: :host` for `Nx.BinaryBackend` results.
+  Device-resident inputs from the same worker are passed by handle rather than
+  re-uploaded.
+
+  Emits `[:ex_tinygrad, :compile | :execute, :start | :stop]` telemetry spans.
   """
   @behaviour Nx.Defn.Compiler
+  require Logger
 
   alias ExTinygrad.{
     Backend,
@@ -110,36 +116,47 @@ defmodule ExTinygrad.Compiler do
   end
 
   defp compile_worker(worker, graph, opts) do
-    args = %{
-      "graph" => Graph.to_wire(graph),
-      "validate_capture" => Keyword.get(opts, :validate_capture, true)
-    }
+    :telemetry.span([:ex_tinygrad, :compile], %{worker: worker, node_count: length(graph.nodes)}, fn ->
+      args = %{
+        "graph" => Graph.to_wire(graph),
+        "validate_capture" => Keyword.get(opts, :validate_capture, true)
+      }
 
-    {:ok, %{"executable_id" => id}, []} =
-      request(worker, "compile", args, Graph.blobs(graph),
-        timeout: Keyword.get(opts, :compile_timeout, Config.compile_timeout())
+      {:ok, %{"executable_id" => id} = result, []} =
+        request(worker, "compile", args, Graph.blobs(graph),
+          timeout: Keyword.get(opts, :compile_timeout, Config.compile_timeout())
+        )
+
+      Logger.debug(
+        "ex_tinygrad compiled executable #{id} " <>
+          "(#{result["kernel_count"]} kernels, #{Float.round(result["compile_ms"] || 0.0, 2)} ms)"
       )
 
-    id
+      {id, %{worker: worker, executable_id: id, kernel_count: result["kernel_count"]}}
+    end)
   end
 
   # -- runtime ------------------------------------------------------------
 
   defp run_one(params, ctx) do
-    {inputs, blobs} = build_inputs(params, ctx.graph, ctx.worker)
-    output_mode = Atom.to_string(ctx.output)
+    metadata = %{worker: ctx.worker, executable_id: ctx.executable_id, output: ctx.output}
 
-    {:ok, %{"outputs" => output_specs}, output_blobs} =
-      request(
-        ctx.worker,
-        "execute",
-        %{"executable_id" => ctx.executable_id, "inputs" => inputs, "output" => output_mode},
-        blobs,
-        timeout: ctx.execute_timeout
-      )
+    :telemetry.span([:ex_tinygrad, :execute], metadata, fn ->
+      {inputs, blobs} = build_inputs(params, ctx.graph, ctx.worker)
+      output_mode = Atom.to_string(ctx.output)
 
-    tensors = decode_outputs(ctx.output, output_specs, output_blobs, ctx.worker)
-    OutputContainer.reconstruct(ctx.output_container, tensors)
+      {:ok, %{"outputs" => output_specs}, output_blobs} =
+        request(
+          ctx.worker,
+          "execute",
+          %{"executable_id" => ctx.executable_id, "inputs" => inputs, "output" => output_mode},
+          blobs,
+          timeout: ctx.execute_timeout
+        )
+
+      tensors = decode_outputs(ctx.output, output_specs, output_blobs, ctx.worker)
+      {OutputContainer.reconstruct(ctx.output_container, tensors), metadata}
+    end)
   end
 
   # Build execute inputs. A runtime tensor already resident in this worker (same

@@ -65,6 +65,21 @@ predict = ExTinygrad.jit(&Example.predict/3, device: "KFD+AMD:LLVM")
 result = predict.(x, weights, bias)
 ```
 
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — the stack, supervision tree, and lifecycle
+- [docs/protocol.md](docs/protocol.md) — the XTG1 worker protocol
+- [docs/operation-coverage.md](docs/operation-coverage.md) — supported Nx operations
+- [docs/amd-nixos.md](docs/amd-nixos.md) — running on AMD without ROCm
+- [docs/troubleshooting.md](docs/troubleshooting.md)
+- [examples/](examples/) and [bench/](bench/)
+
+## Telemetry
+
+Emits `[:ex_tinygrad, :compile | :execute, :start | :stop]` spans,
+`[:ex_tinygrad, :transfer, :upload | :download]`, and
+`[:ex_tinygrad, :worker, :restart]`.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

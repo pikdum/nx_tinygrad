@@ -36,6 +36,7 @@ defmodule ExTinygrad.Backend do
     {%{"id" => handle}, []} =
       request!(worker, "upload", %{"shape" => Tuple.to_list(shape), "dtype" => dtype}, [binary])
 
+    :telemetry.execute([:ex_tinygrad, :transfer, :upload], %{bytes: byte_size(binary)}, %{worker: worker})
     %{out | data: build(handle, worker, shape, type)}
   end
 
@@ -43,6 +44,7 @@ defmodule ExTinygrad.Backend do
   def to_binary(%Nx.Tensor{data: %__MODULE__{} = b, type: {_, bits}}, limit) do
     ensure_fresh!(b)
     {_meta, [blob]} = request!(b.worker, "download", %{"id" => handle(b)})
+    :telemetry.execute([:ex_tinygrad, :transfer, :download], %{bytes: byte_size(blob)}, %{worker: b.worker})
     keep = min(byte_size(blob), limit * div(bits, 8))
     binary_part(blob, 0, keep)
   end

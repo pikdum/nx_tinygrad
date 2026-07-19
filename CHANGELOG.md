@@ -3,7 +3,11 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.0] - 2026-07-19
+
+First release: an `Nx.Defn` compiler and tensor backend that runs whole Nx
+graphs on tinygrad, verified end-to-end on an AMD RX 7900 XT through
+`KFD+AMD:LLVM` with no ROCm in the closure.
 
 ### Added
 
@@ -50,3 +54,8 @@ All notable changes to this project are documented here. The format is based on
   10k-iteration buffer-lifecycle test, and a `/proc/self/maps` check that no
   ROCm/HIP/comgr library is loaded. GPU tests are gated behind
   `EX_TINYGRAD_GPU_TESTS=1`.
+- **M8** — telemetry spans (`compile`/`execute`) and events
+  (`transfer.upload`/`transfer.download`, `worker.restart`); docs
+  (architecture, protocol, operation coverage, AMD-on-NixOS, troubleshooting);
+  runnable examples; and benchmarks (matmul, MLP, bridge overhead, direct
+  tinygrad baseline).

@@ -148,6 +148,13 @@ defmodule ExTinygrad.Worker do
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.error("ex_tinygrad worker #{inspect(state.name)} exited (status #{status})")
+
+    :telemetry.execute([:ex_tinygrad, :worker, :restart], %{}, %{
+      name: state.name,
+      generation: state.generation,
+      exit_status: status
+    })
+
     {:stop, {:worker_exit, status}, fail_all(state, crash_error(status, state))}
   end
 
