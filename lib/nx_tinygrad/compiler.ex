@@ -108,7 +108,8 @@ defmodule NxTinygrad.Compiler do
       key =
         GraphCacheKey.compute(graph,
           device: info["device"],
-          tinygrad_commit: info["tinygrad_version"]
+          tinygrad_commit: info["tinygrad_commit"] || info["tinygrad_version"],
+          worker: worker
         )
 
       case ExecutableCache.get(key) do

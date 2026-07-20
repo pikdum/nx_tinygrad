@@ -62,4 +62,13 @@ defmodule NxTinygrad.CacheTest do
     # `a` must not have changed because of the later call.
     assert_close(a, TestGraphs.reduction(Nx.iota({2, 3}, type: :f32)))
   end
+
+  test "same-shaped inline tensor constants do not collide" do
+    x = Nx.tensor([0.0, 0.0])
+    add_small = NxTinygrad.jit(fn t -> Nx.add(t, Nx.tensor([1.0, 2.0])) end)
+    add_large = NxTinygrad.jit(fn t -> Nx.add(t, Nx.tensor([10.0, 20.0])) end)
+
+    assert_close(add_small.(x), Nx.tensor([1.0, 2.0]))
+    assert_close(add_large.(x), Nx.tensor([10.0, 20.0]))
+  end
 end

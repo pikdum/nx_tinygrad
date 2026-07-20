@@ -93,6 +93,21 @@ defmodule NxTinygrad.LoweringTest do
     refute GraphCacheKey.compute(g1, device: "CPU") == GraphCacheKey.compute(g2, device: "CPU")
   end
 
+  test "different inline tensor values produce different cache keys" do
+    x = Nx.tensor([0.0, 0.0])
+    g1 = lower(fn t -> Nx.add(t, Nx.tensor([1.0, 2.0])) end, [x])
+    g2 = lower(fn t -> Nx.add(t, Nx.tensor([10.0, 20.0])) end, [x])
+
+    refute GraphCacheKey.compute(g1, device: "CPU") == GraphCacheKey.compute(g2, device: "CPU")
+  end
+
+  test "the same graph on different workers produces different cache keys" do
+    graph = lower(&NxTinygrad.TestGraphs.chain/1, [Nx.iota({3}, type: :f32)])
+
+    refute GraphCacheKey.compute(graph, device: "CPU", worker: :one) ==
+             GraphCacheKey.compute(graph, device: "CPU", worker: :two)
+  end
+
   test "unsupported operations raise a compile error before Python" do
     assert_raise NxTinygrad.CompileError, ~r/unsupported Nx operation/, fn ->
       lower(fn x -> Nx.fft(x) end, [Nx.iota({4}, type: {:c, 64})])
