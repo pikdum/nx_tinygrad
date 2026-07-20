@@ -16,6 +16,11 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
   `Nx.LinAlg` composites like `determinant`).
 - **Convolution backward**: permuted/dilated `conv`, so conv gradients (w.r.t.
   kernel and input) lower — unblocks CNN training.
+- **`window_scatter_max`/`window_scatter_min`** (select-and-scatter) — completes
+  **max-pool backward**, so full CNN training (conv + maxpool gradients) works.
+- **`cholesky`** — iterative linalg via the `while` path.
+- **`bf16` dtype** — rides a uint16 transport carrier, bitcast to tinygrad
+  bfloat16 in the worker (HF bfloat16 checkpoints load without host conversion).
 - **Dynamic slice**: `slice` with runtime (tensor) start indices.
 - Elementwise: `erf_inv`, `count_leading_zeros`, `population_count`,
   `conjugate` (real), `bitcast`.

@@ -47,8 +47,10 @@ supported), `sort`, `argsort`.
 
 `gather` (Nx coordinate-gather over `:axes`). `take` and `take_along_axis` are
 covered via the block path (they decompose to `gather` + `iota`). `put_slice`
-(compile-time start offsets), `indexed_add`, `indexed_put` (coordinate scatter
-over `:axes`; `indexed_add` accumulates duplicate indices).
+(static or dynamic start offsets), `indexed_add`, `indexed_put` (coordinate
+scatter over `:axes`; `indexed_add` accumulates duplicate indices).
+`window_scatter_max`/`window_scatter_min` (select-and-scatter — max/min-pool
+backward).
 
 ## Reductions
 
@@ -62,8 +64,8 @@ tie-breaks); windowed `window_sum`, `window_max`, `window_min`,
 Optional Nx ops that carry a pre-traced *pure* default expression are lowered by
 binding their inputs to that expression and lowering it into primitives — the
 impure callback is never run. This covers `cumulative_sum/product/max/min`,
-`top_k`, and non-iterative `Nx.LinAlg` composites (e.g. `determinant`).
-Tuple-valued sources are projected with `elem`.
+`top_k`, `Nx.LinAlg.determinant`, and `Nx.LinAlg.cholesky` (the latter iterates
+through the `while` path). Tuple-valued sources are projected with `elem`.
 
 `cond` lowers to a chain of predicated `select`s (pure branches). `while` lowers
 to a multi-output node whose condition and body are self-contained sub-graphs;
@@ -86,11 +88,12 @@ permutations, and `batch_group_size` > 1.
 
 ## dtypes
 
-Wire names map to Nx types. v0.1 required: `f32`, `s32`, `u8`. Also mapped:
-`f16`, `f64`, `s8`, `s16`, `s64`, `u16`, `u32`, `u64`. `f64` is functional
-but not performance-optimized on the tested AMD device. Not supported: `bf16`,
-complex, packed, or quantized types. Nx determines output types; tinygrad results
-are cast to satisfy the serialized output spec.
+Wire names map to Nx types: `f16`, `f32`, `f64`, `bf16`, `s8`, `s16`, `s32`,
+`s64`, `u8`, `u16`, `u32`, `u64`. `bf16` rides a uint16 transport carrier and is
+bitcast to tinygrad bfloat16 in the worker. `f64` is functional but not
+performance-optimized on the tested AMD device. Not supported: complex, packed,
+or quantized types. Nx determines output types; tinygrad results are cast to
+satisfy the serialized output spec.
 
 ## Autograd
 
@@ -102,16 +105,14 @@ needs the forward op set above (which covers the linear/MLP gradient graphs).
 
 These raise a detailed compile error, grouped by the underlying reason:
 
+- **Complex numbers** — tinygrad has no complex dtype, so `fft`, `ifft`, and
+  `conjugate`-to-complex are unsupported (`real`/`imag` work on real inputs).
+  This is a fundamental tinygrad limitation; supporting it would mean emulating
+  complex as pairs of reals across every op.
 - **`reduce` / `window_reduce` with a custom accumulator function** — arbitrary
   user reductions have no general tinygrad mapping (standard associative
   reductions are already covered by `sum`/`product`/`reduce_max`/`reduce_min`
   and the `window_*` ops).
-- **Complex numbers** — tinygrad has no complex dtype, so `fft`, `ifft`, and
-  `conjugate`-to-complex are unsupported (`real`/`imag` work on real inputs).
-- **`window_scatter_max` / `window_scatter_min`** — max-pool-gradient scatter,
-  not yet implemented.
-- **`bf16` dtype** — the numpy transport can't natively carry bfloat16.
-- **Iterative `Nx.LinAlg`** (`cholesky`, `qr`, `lu`, `svd`, `eigh`,
-  `triangular_solve`) — these run through `while`, which now lowers, but their
-  numerics haven't been validated yet.
+- **`qr`, `lu`, `svd`, `triangular_solve`** — niche classical-ML linalg with
+  complex internal decompositions (`cholesky` works via `while`).
 - `conv` with `batch_group_size` > 1.
