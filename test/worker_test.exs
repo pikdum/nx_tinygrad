@@ -56,7 +56,7 @@ defmodule NxTinygrad.WorkerTest do
   end
 
   test "unknown command yields a structured protocol error" do
-    assert {:error, %NxTinygrad.WorkerError{class: "ProtocolError"}} =
+    assert {:error, %NxTinygrad.WorkerError{class: "ProtocolError", command: "bogus_command"}} =
              Worker.request(:default, "bogus_command", %{})
   end
 

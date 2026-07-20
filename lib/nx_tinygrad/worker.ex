@@ -117,7 +117,7 @@ defmodule NxTinygrad.Worker do
     Port.command(state.port, frame)
 
     timer = Process.send_after(self(), {:request_timeout, req_id}, timeout)
-    pending = Map.put(state.pending, req_id, {from, timer})
+    pending = Map.put(state.pending, req_id, {from, timer, command})
     {:noreply, %{state | next_req_id: req_id + 1, pending: pending}}
   end
 
@@ -128,7 +128,7 @@ defmodule NxTinygrad.Worker do
   def handle_info({port, {:data, payload}}, %{port: port} = state) do
     case Protocol.decode(payload) do
       {:ok, {req_id, meta, blobs}} ->
-        {:noreply, deliver(state, req_id, response(meta, blobs, state))}
+        {:noreply, deliver(state, req_id, meta, blobs)}
 
       {:error, reason} ->
         Logger.error(
@@ -144,7 +144,7 @@ defmodule NxTinygrad.Worker do
       {nil, _} ->
         {:noreply, state}
 
-      {{from, _timer}, pending} ->
+      {{from, _timer, _command}, pending} ->
         GenServer.reply(from, {:error, timeout_error(state)})
         {:noreply, %{state | pending: pending}}
     end
@@ -234,21 +234,21 @@ defmodule NxTinygrad.Worker do
   defp verify_protocol(%{"protocol_version" => v}), do: {:error, {:protocol_mismatch, v, @protocol_version}}
   defp verify_protocol(_), do: {:error, :handshake_missing_version}
 
-  defp deliver(state, req_id, reply) do
+  defp deliver(state, req_id, meta, blobs) do
     case Map.pop(state.pending, req_id) do
       {nil, _} ->
         Logger.warning("nx_tinygrad worker #{inspect(state.name)} got a reply for unknown req #{req_id}")
         state
 
-      {{from, timer}, pending} ->
+      {{from, timer, command}, pending} ->
         Process.cancel_timer(timer)
-        GenServer.reply(from, reply)
+        GenServer.reply(from, response(meta, blobs, state, command))
         %{state | pending: pending}
     end
   end
 
   defp fail_all(state, error) do
-    for {_id, {from, timer}} <- state.pending do
+    for {_id, {from, timer, _command}} <- state.pending do
       Process.cancel_timer(timer)
       GenServer.reply(from, {:error, error})
     end
@@ -257,13 +257,14 @@ defmodule NxTinygrad.Worker do
   end
 
   # Translate a decoded response frame into a caller reply.
-  defp response(%{"ok" => true, "result" => result}, blobs, _state), do: {:ok, result, blobs}
+  defp response(%{"ok" => true, "result" => result}, blobs, _state, _command),
+    do: {:ok, result, blobs}
 
-  defp response(%{"ok" => false, "error" => error}, _blobs, state) do
-    {:error, worker_error(error, state, nil)}
+  defp response(%{"ok" => false, "error" => error}, _blobs, state, command) do
+    {:error, worker_error(error, state, command)}
   end
 
-  defp response(_meta, _blobs, _state),
+  defp response(_meta, _blobs, _state, _command),
     do: {:error, %NxTinygrad.ProtocolError{message: "malformed response frame"}}
 
   defp worker_error(error, state, command) do

@@ -11,6 +11,8 @@ class Stats:
     upload_bytes: int = 0
     download_bytes: int = 0
     duplicate_input_clones: int = 0
+    immutable_copy_fast: int = 0
+    immutable_copy_fallback: int = 0
 
     def as_dict(self) -> dict:
         return asdict(self)

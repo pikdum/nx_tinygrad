@@ -54,10 +54,12 @@ defmodule NxTinygrad.BackendTest do
   end
 
   test "jit with output: :device returns device tensors" do
+    before = NxTinygrad.worker_stats()["immutable_copy_fallback"]
     x = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
     result = NxTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :device).(x)
     assert %Backend{} = result.data
     assert Nx.to_flat_list(Nx.backend_transfer(result)) == [2.0, 4.0, 6.0, 8.0]
+    assert NxTinygrad.worker_stats()["immutable_copy_fallback"] > before
   end
 
   test "jit with output: :host returns BinaryBackend tensors" do

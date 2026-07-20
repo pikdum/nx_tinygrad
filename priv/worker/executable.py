@@ -21,7 +21,7 @@ from dtype import numpy_dtype, tinygrad_dtype
 from errors import CompileError
 
 
-def immutable_copy(t: Tensor) -> Tensor:
+def immutable_copy(t: Tensor, stats=None) -> Tensor:
     """A fresh, independent realized copy of ``t``.
 
     Captured TinyJit outputs reuse the same buffer on every replay, so a returned
@@ -48,8 +48,12 @@ def immutable_copy(t: Tensor) -> Tensor:
         dst = Tensor.empty(*t.shape, dtype=t.dtype, device=t.device)
         dst.uop.buffer.allocate()
         allocator._transfer(dst.uop.buffer._buf, src._buf, src.nbytes, dev, dev)
+        if stats is not None:
+            stats.immutable_copy_fast += 1
         return dst
     except Exception:  # noqa: BLE001 — any failure falls back to the safe path
+        if stats is not None:
+            stats.immutable_copy_fallback += 1
         return t.clone().realize()
 
 

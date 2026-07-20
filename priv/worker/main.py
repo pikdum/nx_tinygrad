@@ -185,7 +185,7 @@ class Handler:
 
         specs = []
         for tensor, ospec in zip(outputs, executable.output_specs):
-            cloned = immutable_copy(tensor)
+            cloned = immutable_copy(tensor, self.stats)
             nbytes = int(self.np.prod(ospec["shape"], dtype="int64")) * numpy_dtype(ospec["dtype"]).itemsize
             bid = self.registry.put(cloned, ospec["shape"], ospec["dtype"], nbytes)
             specs.append({"id": bid, "shape": ospec["shape"], "dtype": ospec["dtype"]})
