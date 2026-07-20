@@ -1,8 +1,8 @@
-defmodule ExTinygrad.WorkerRestartTest do
+defmodule NxTinygrad.WorkerRestartTest do
   @moduledoc "The worker is restartable and a crash does not take down the BEAM."
   use ExUnit.Case, async: false
 
-  alias ExTinygrad.Worker
+  alias NxTinygrad.Worker
 
   test "killing the worker restarts it with a higher generation; BEAM stays up" do
     pid1 = Worker.whereis(:default)
@@ -26,7 +26,7 @@ defmodule ExTinygrad.WorkerRestartTest do
   end
 
   test "a device tensor from an old generation is stale after restart; graph recompiles" do
-    x = Nx.tensor([1.0, 2.0, 3.0]) |> Nx.backend_transfer({ExTinygrad.Backend, worker: :default})
+    x = Nx.tensor([1.0, 2.0, 3.0]) |> Nx.backend_transfer({NxTinygrad.Backend, worker: :default})
     gen1 = Worker.generation(:default)
 
     pid = Worker.whereis(:default)
@@ -36,13 +36,13 @@ defmodule ExTinygrad.WorkerRestartTest do
     wait_for_new_worker(pid)
 
     assert Worker.generation(:default) > gen1
-    assert Process.whereis(ExTinygrad.Supervisor) != nil, "BEAM/app supervisor must stay alive"
+    assert Process.whereis(NxTinygrad.Supervisor) != nil, "BEAM/app supervisor must stay alive"
 
     # The old device tensor's data cannot be recovered.
-    assert_raise ExTinygrad.StaleTensorError, fn -> Nx.to_binary(x) end
+    assert_raise NxTinygrad.StaleTensorError, fn -> Nx.to_binary(x) end
 
     # A fresh compiled call transparently recompiles on the new generation.
-    y = ExTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end).(Nx.tensor([1.0, 2.0]))
+    y = NxTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end).(Nx.tensor([1.0, 2.0]))
     assert Nx.to_flat_list(Nx.backend_transfer(y)) == [2.0, 4.0]
   end
 

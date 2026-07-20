@@ -1,7 +1,7 @@
-defmodule ExTinygrad.DeviceTest do
+defmodule NxTinygrad.DeviceTest do
   use ExUnit.Case, async: true
 
-  alias ExTinygrad.Device
+  alias NxTinygrad.Device
 
   test "KFD+AMD:LLVM is a native tinygrad DEV string; backend is AMD" do
     parsed = Device.parse("KFD+AMD:LLVM")

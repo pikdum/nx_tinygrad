@@ -1,4 +1,4 @@
-defmodule ExTinygrad.WorkerIds do
+defmodule NxTinygrad.WorkerIds do
   @moduledoc """
   Stable bidirectional mapping between worker names (atoms) and small integer
   ids. The integer id is what the Rust `TensorRef` resource stores, since it

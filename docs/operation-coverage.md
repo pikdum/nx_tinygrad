@@ -1,7 +1,7 @@
 # Operation coverage (v0.1)
 
 The compiler lowers the operations below. Anything else raises
-`ExTinygrad.CompileError` at compile time (no silent host fallback), naming the
+`NxTinygrad.CompileError` at compile time (no silent host fallback), naming the
 operation and its shapes.
 
 ## Syntax nodes

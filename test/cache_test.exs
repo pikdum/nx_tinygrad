@@ -1,24 +1,24 @@
-defmodule ExTinygrad.CacheTest do
+defmodule NxTinygrad.CacheTest do
   @moduledoc "Executable caching and TinyJit replay."
   use ExUnit.Case, async: false
 
-  import ExTinygrad.TestGraphs
-  alias ExTinygrad.{ExecutableCache, TestGraphs}
+  import NxTinygrad.TestGraphs
+  alias NxTinygrad.{ExecutableCache, TestGraphs}
 
   setup do
     ExecutableCache.clear()
     :ok
   end
 
-  defp compile_count, do: ExTinygrad.worker_stats()["compile_count"]
+  defp compile_count, do: NxTinygrad.worker_stats()["compile_count"]
 
   test "identical graphs compile once, then hit the cache" do
     x1 = Nx.iota({5, 7}, type: :f32)
     x2 = Nx.iota({5, 7}, type: :f32) |> Nx.add(1.0)
 
     before = compile_count()
-    r1 = ExTinygrad.jit(&TestGraphs.reduction/1).(x1)
-    r2 = ExTinygrad.jit(&TestGraphs.reduction/1).(x2)
+    r1 = NxTinygrad.jit(&TestGraphs.reduction/1).(x1)
+    r2 = NxTinygrad.jit(&TestGraphs.reduction/1).(x2)
 
     assert compile_count() - before == 1
     assert_close(r1, TestGraphs.reduction(x1))
@@ -28,13 +28,13 @@ defmodule ExTinygrad.CacheTest do
   test "cache: false recompiles every time" do
     x = Nx.iota({6, 3}, type: :f32)
     before = compile_count()
-    ExTinygrad.jit(&TestGraphs.reduction/1, cache: false).(x)
-    ExTinygrad.jit(&TestGraphs.reduction/1, cache: false).(x)
+    NxTinygrad.jit(&TestGraphs.reduction/1, cache: false).(x)
+    NxTinygrad.jit(&TestGraphs.reduction/1, cache: false).(x)
     assert compile_count() - before == 2
   end
 
   test "a compiled function replays on new same-shaped inputs" do
-    f = ExTinygrad.jit(&TestGraphs.elementwise/2)
+    f = NxTinygrad.jit(&TestGraphs.elementwise/2)
     x1 = Nx.tensor([[1.0, 2.0]])
     y1 = Nx.tensor([[3.0, 4.0]])
     x2 = Nx.tensor([[5.0, 6.0]])
@@ -48,15 +48,15 @@ defmodule ExTinygrad.CacheTest do
     x = Nx.iota({2, 3}, type: :f32)
     w = Nx.iota({3, 2}, type: :f32)
     b = Nx.tensor([1.0, 2.0])
-    f = ExTinygrad.jit(&TestGraphs.matmul/3)
+    f = NxTinygrad.jit(&TestGraphs.matmul/3)
 
-    before = ExTinygrad.worker_stats()["execute_count"]
+    before = NxTinygrad.worker_stats()["execute_count"]
     f.(x, w, b)
-    assert ExTinygrad.worker_stats()["execute_count"] - before == 1
+    assert NxTinygrad.worker_stats()["execute_count"] - before == 1
   end
 
   test "replayed results are independent (no cross-call contamination)" do
-    f = ExTinygrad.jit(&TestGraphs.reduction/1)
+    f = NxTinygrad.jit(&TestGraphs.reduction/1)
     a = f.(Nx.iota({2, 3}, type: :f32))
     _b = f.(Nx.broadcast(9.0, {2, 3}))
     # `a` must not have changed because of the later call.

@@ -12,19 +12,19 @@
 #
 # The GPU row appears only if an AMD device is available.
 
-alias ExTinygrad.Backend
+alias NxTinygrad.Backend
 
 # ---------------------------------------------------------------- workers ----
 cpu = :default
 
 gpu =
   with {:started, _} <-
-         (case ExTinygrad.WorkerSupervisor.start_worker(:amd, "KFD+AMD:LLVM") do
+         (case NxTinygrad.WorkerSupervisor.start_worker(:amd, "KFD+AMD:LLVM") do
             {:ok, pid} -> {:started, pid}
             {:error, {:already_started, pid}} -> {:started, pid}
             other -> other
           end),
-       {:ok, %{"usable" => true} = info, []} <- ExTinygrad.Worker.request(:amd, "device_info", %{}) do
+       {:ok, %{"usable" => true} = info, []} <- NxTinygrad.Worker.request(:amd, "device_info", %{}) do
     IO.puts("GPU: #{info["architecture"]} via #{info["interface"]}+AMD:#{info["renderer"]}")
     :amd
   else
@@ -82,12 +82,12 @@ run = fn title, fun, host_args ->
   cpu_args = to_dev.(cpu)
   gpu_args = if gpu, do: to_dev.(gpu)
 
-  f_cpu = ExTinygrad.jit(fun, worker: cpu, output: :device)
-  f_gpu = if gpu, do: ExTinygrad.jit(fun, worker: gpu, output: :device)
+  f_cpu = NxTinygrad.jit(fun, worker: cpu, output: :device)
+  f_gpu = if gpu, do: NxTinygrad.jit(fun, worker: gpu, output: :device)
 
   # warm up (compile + capture)
-  ExTinygrad.release(apply(f_cpu, cpu_args))
-  if gpu, do: ExTinygrad.release(apply(f_gpu, gpu_args))
+  NxTinygrad.release(apply(f_cpu, cpu_args))
+  if gpu, do: NxTinygrad.release(apply(f_gpu, gpu_args))
 
   # Probe BinaryBackend feasibility with a timeout so a 60s matmul doesn't stall
   # the benchmark just to be skipped.
@@ -107,7 +107,7 @@ run = fn title, fun, host_args ->
   tg = fn f, args, worker ->
     fn ->
       r = apply(f, args)
-      ExTinygrad.synchronize(worker: worker)
+      NxTinygrad.synchronize(worker: worker)
       r
     end
   end
@@ -122,12 +122,12 @@ run = fn title, fun, host_args ->
     time: 2,
     warmup: 1,
     memory_time: 0,
-    after_each: fn result -> ExTinygrad.release(result) end,
+    after_each: fn result -> NxTinygrad.release(result) end,
     print: [benchmarking: false, fast_warning: false, configuration: false]
   )
 
-  Enum.each(cpu_args, &ExTinygrad.release/1)
-  if gpu, do: Enum.each(gpu_args, &ExTinygrad.release/1)
+  Enum.each(cpu_args, &NxTinygrad.release/1)
+  if gpu, do: Enum.each(gpu_args, &NxTinygrad.release/1)
 end
 
 # ------------------------------------------------------------------- runs ----

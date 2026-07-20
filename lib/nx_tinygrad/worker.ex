@@ -1,4 +1,4 @@
-defmodule ExTinygrad.Worker do
+defmodule NxTinygrad.Worker do
   @moduledoc """
   Owns a single Python worker OS process behind an Erlang Port and serializes
   requests to it.
@@ -14,9 +14,9 @@ defmodule ExTinygrad.Worker do
   use GenServer
   require Logger
 
-  alias ExTinygrad.{Config, Device, Generation, Protocol}
+  alias NxTinygrad.{Config, Device, Generation, Protocol}
 
-  @registry ExTinygrad.WorkerRegistry
+  @registry NxTinygrad.WorkerRegistry
   @protocol_version 1
   @handshake_timeout 30_000
 
@@ -85,7 +85,7 @@ defmodule ExTinygrad.Worker do
     case handshake(port) do
       {:ok, hello} ->
         Logger.debug(
-          "ex_tinygrad worker #{inspect(name)} up: generation #{generation}, device #{device_spec}"
+          "nx_tinygrad worker #{inspect(name)} up: generation #{generation}, device #{device_spec}"
         )
 
         state = %{
@@ -128,7 +128,7 @@ defmodule ExTinygrad.Worker do
 
       {:error, reason} ->
         Logger.error(
-          "ex_tinygrad worker #{inspect(state.name)} sent an undecodable frame: #{inspect(reason)}"
+          "nx_tinygrad worker #{inspect(state.name)} sent an undecodable frame: #{inspect(reason)}"
         )
 
         {:stop, {:protocol_error, reason}, fail_all(state, protocol_error(reason))}
@@ -147,9 +147,9 @@ defmodule ExTinygrad.Worker do
   end
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
-    Logger.error("ex_tinygrad worker #{inspect(state.name)} exited (status #{status})")
+    Logger.error("nx_tinygrad worker #{inspect(state.name)} exited (status #{status})")
 
-    :telemetry.execute([:ex_tinygrad, :worker, :restart], %{}, %{
+    :telemetry.execute([:nx_tinygrad, :worker, :restart], %{}, %{
       name: state.name,
       generation: state.generation,
       exit_status: status
@@ -178,8 +178,8 @@ defmodule ExTinygrad.Worker do
     env =
       %{
         "DEV" => parsed.dev,
-        "EX_TINYGRAD_DEVICE" => parsed.spec,
-        "EX_TINYGRAD_GENERATION" => Integer.to_string(generation),
+        "NX_TINYGRAD_DEVICE" => parsed.spec,
+        "NX_TINYGRAD_GENERATION" => Integer.to_string(generation),
         "DEBUG" => Integer.to_string(Config.debug()),
         "PYTHONUNBUFFERED" => "1"
       }
@@ -233,7 +233,7 @@ defmodule ExTinygrad.Worker do
   defp deliver(state, req_id, reply) do
     case Map.pop(state.pending, req_id) do
       {nil, _} ->
-        Logger.warning("ex_tinygrad worker #{inspect(state.name)} got a reply for unknown req #{req_id}")
+        Logger.warning("nx_tinygrad worker #{inspect(state.name)} got a reply for unknown req #{req_id}")
         state
 
       {{from, timer}, pending} ->
@@ -260,10 +260,10 @@ defmodule ExTinygrad.Worker do
   end
 
   defp response(_meta, _blobs, _state),
-    do: {:error, %ExTinygrad.ProtocolError{message: "malformed response frame"}}
+    do: {:error, %NxTinygrad.ProtocolError{message: "malformed response frame"}}
 
   defp worker_error(error, state, command) do
-    %ExTinygrad.WorkerError{
+    %NxTinygrad.WorkerError{
       message: Map.get(error, "message", "worker error"),
       class: Map.get(error, "class", "WorkerError"),
       command: command,
@@ -275,7 +275,7 @@ defmodule ExTinygrad.Worker do
   end
 
   defp timeout_error(state) do
-    %ExTinygrad.WorkerError{
+    %NxTinygrad.WorkerError{
       message: "request timed out",
       class: "Timeout",
       generation: state.generation,
@@ -285,11 +285,11 @@ defmodule ExTinygrad.Worker do
   end
 
   defp crash_error(status, state) do
-    %ExTinygrad.WorkerCrashedError{exit_status: status, generation: state.generation}
+    %NxTinygrad.WorkerCrashedError{exit_status: status, generation: state.generation}
   end
 
   defp protocol_error(reason) do
-    %ExTinygrad.ProtocolError{message: "undecodable worker frame: #{inspect(reason)}"}
+    %NxTinygrad.ProtocolError{message: "undecodable worker frame: #{inspect(reason)}"}
   end
 
   defp safe_close(port) do

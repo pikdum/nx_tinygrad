@@ -60,7 +60,7 @@ the bottleneck (see the breakdown). Against that small gain:
   without more Nix work.
 
 Verdict: not worth it as *the* transport. It could be a nice **opt-in** transport
-for CPU-only / tight-Nx↔numpy workflows (a pluggable `ExTinygrad.Transport`
+for CPU-only / tight-Nx↔numpy workflows (a pluggable `NxTinygrad.Transport`
 behaviour would slot it in), but it does not move the number people care about.
 
 ## What's left on the table

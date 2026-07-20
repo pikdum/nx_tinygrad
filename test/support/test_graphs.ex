@@ -1,4 +1,4 @@
-defmodule ExTinygrad.TestGraphs do
+defmodule NxTinygrad.TestGraphs do
   @moduledoc "Shared defn functions and assertion helpers for tests."
   import Nx.Defn
   import ExUnit.Assertions
@@ -46,7 +46,7 @@ defmodule ExTinygrad.TestGraphs do
     atol = Keyword.get(opts, :atol, 1.0e-5)
     rtol = Keyword.get(opts, :rtol, 1.0e-4)
 
-    # Results may be device-resident (ExTinygrad.Backend); bring them to the host.
+    # Results may be device-resident (NxTinygrad.Backend); bring them to the host.
     actual_leaves = actual |> flatten() |> Enum.map(&Nx.backend_transfer/1)
     expected_leaves = expected |> flatten() |> Enum.map(&Nx.backend_transfer/1)
 

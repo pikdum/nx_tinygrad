@@ -1,14 +1,14 @@
-defmodule ExTinygrad.TensorRef do
+defmodule NxTinygrad.TensorRef do
   @moduledoc """
   Rustler NIF resource holding worker-buffer reference metadata (worker id,
   generation, handle).
 
   The resource carries no GPU state. When it is garbage-collected, its Rust
-  `Drop` pushes a release onto a native queue that `ExTinygrad.ReleaseReaper`
+  `Drop` pushes a release onto a native queue that `NxTinygrad.ReleaseReaper`
   drains. `take/1` claims a reference for explicit release so a later GC does not
   release it twice.
   """
-  use Rustler, otp_app: :ex_tinygrad, crate: :ex_tinygrad_ref
+  use Rustler, otp_app: :nx_tinygrad, crate: :nx_tinygrad_ref
 
   @doc "Create a reference resource for `{worker_id, generation, handle}`."
   def new(_worker_id, _generation, _handle), do: err()

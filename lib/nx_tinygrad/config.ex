@@ -1,4 +1,4 @@
-defmodule ExTinygrad.Config do
+defmodule NxTinygrad.Config do
   @moduledoc "Access to application configuration with sensible defaults."
 
   @defaults %{
@@ -12,7 +12,7 @@ defmodule ExTinygrad.Config do
 
   @spec get(atom()) :: term()
   def get(key) when is_map_key(@defaults, key) do
-    Application.get_env(:ex_tinygrad, key, Map.fetch!(@defaults, key))
+    Application.get_env(:nx_tinygrad, key, Map.fetch!(@defaults, key))
   end
 
   def device, do: get(:device)
@@ -25,17 +25,17 @@ defmodule ExTinygrad.Config do
   @doc """
   The Python interpreter used to run the worker.
 
-  Set by the Nix devshell via `EX_TINYGRAD_PYTHON`; falls back to `python3` on
+  Set by the Nix devshell via `NX_TINYGRAD_PYTHON`; falls back to `python3` on
   PATH otherwise.
   """
   @spec python_executable() :: String.t()
   def python_executable do
-    System.get_env("EX_TINYGRAD_PYTHON") || System.find_executable("python3") || "python3"
+    System.get_env("NX_TINYGRAD_PYTHON") || System.find_executable("python3") || "python3"
   end
 
   @doc "Absolute path to the worker's `main.py`."
   @spec worker_main() :: String.t()
   def worker_main do
-    Path.join(:code.priv_dir(:ex_tinygrad), "worker/main.py")
+    Path.join(:code.priv_dir(:nx_tinygrad), "worker/main.py")
   end
 end

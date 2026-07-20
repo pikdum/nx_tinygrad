@@ -4,10 +4,10 @@
 Elixir / Nx / Axon
         │  Nx.Defn expression
         ▼
-ExTinygrad.Compiler  (Nx.Defn.Compiler)
-        │  ExTinygrad.Lowering
+NxTinygrad.Compiler  (Nx.Defn.Compiler)
+        │  NxTinygrad.Lowering
         ▼
-ExTinygrad.Graph  — versioned, deterministic tensor-graph IR (canonical JSON)
+NxTinygrad.Graph  — versioned, deterministic tensor-graph IR (canonical JSON)
         │  XTG1 framed protocol over an Erlang Port (packet: 4)
         ▼
 priv/worker/main.py  — supervised Python worker (one OS process)
@@ -37,28 +37,28 @@ only protocol frames, and all logging goes to stderr.
 ## Supervision tree
 
 ```text
-ExTinygrad.Supervisor
-├── Registry (ExTinygrad.WorkerRegistry)
-├── ExTinygrad.WorkerIds        # worker name <-> integer id (for the NIF)
-├── ExTinygrad.ExecutableCache  # graph cache key -> {generation, executable_id}
-├── ExTinygrad.WorkerSupervisor
-│   └── ExTinygrad.Worker (:default)   # owns one Python Port
-└── ExTinygrad.ReleaseReaper    # drains the native release queue
+NxTinygrad.Supervisor
+├── Registry (NxTinygrad.WorkerRegistry)
+├── NxTinygrad.WorkerIds        # worker name <-> integer id (for the NIF)
+├── NxTinygrad.ExecutableCache  # graph cache key -> {generation, executable_id}
+├── NxTinygrad.WorkerSupervisor
+│   └── NxTinygrad.Worker (:default)   # owns one Python Port
+└── NxTinygrad.ReleaseReaper    # drains the native release queue
 ```
 
 Each worker startup gets a strictly increasing **generation**. Every backend
 tensor and executable carries the generation of the worker that produced it, so
 a reference from a dead generation is never sent to a restarted worker — it
-raises `ExTinygrad.StaleTensorError` instead.
+raises `NxTinygrad.StaleTensorError` instead.
 
 ## Compilation flow
 
-1. `ExTinygrad.Compiler.__compile__/4` calls the defn function with parameter
+1. `NxTinygrad.Compiler.__compile__/4` calls the defn function with parameter
    templates to obtain the output expression container.
-2. `ExTinygrad.Lowering` walks the expression DAG post-order into the graph IR.
-   Unsupported operations raise `ExTinygrad.CompileError` here — before any
+2. `NxTinygrad.Lowering` walks the expression DAG post-order into the graph IR.
+   Unsupported operations raise `NxTinygrad.CompileError` here — before any
    Python is contacted, with no silent host fallback.
-3. `ExTinygrad.GraphCacheKey` hashes the canonical graph JSON plus device, Nx and
+3. `NxTinygrad.GraphCacheKey` hashes the canonical graph JSON plus device, Nx and
    tinygrad versions, protocol version, and compile options.
 4. On a cache miss, the graph is sent to the worker (`compile`), which validates
    it, builds a tinygrad graph function, and captures it with `TinyJit`.
@@ -68,8 +68,8 @@ raises `ExTinygrad.StaleTensorError` instead.
 
 ## Memory lifecycle
 
-Device tensors are backed by `ExTinygrad.TensorRef`, a Rustler resource holding
+Device tensors are backed by `NxTinygrad.TensorRef`, a Rustler resource holding
 only `{worker_id, generation, handle}`. When the resource is garbage-collected,
 its Rust `Drop` pushes a release onto a native queue (never blocking, never
-touching the Port). `ExTinygrad.ReleaseReaper` drains the queue and sends batched
+touching the Port). `NxTinygrad.ReleaseReaper` drains the queue and sends batched
 `release` requests. Explicit release uses `take/1` so GC cannot double-free.

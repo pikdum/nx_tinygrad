@@ -1,4 +1,4 @@
-# ex_tinygrad — Design Specification (condensed)
+# nx_tinygrad — Design Specification (condensed)
 
 This is the authoritative design summary. It condenses the full working spec into
 the invariants the implementation must hold. Treat it as guidelines that sharpen
@@ -30,11 +30,11 @@ libLLVM, **no ROCm** in the default closure.
 ## Architecture
 
 ```
-ExTinygrad.Supervisor
-├── ExTinygrad.ExecutableCache
-├── ExTinygrad.WorkerSupervisor
-│   └── ExTinygrad.Worker (:default)   # owns one Python Port
-└── ExTinygrad.ReleaseReaper
+NxTinygrad.Supervisor
+├── NxTinygrad.ExecutableCache
+├── NxTinygrad.WorkerSupervisor
+│   └── NxTinygrad.Worker (:default)   # owns one Python Port
+└── NxTinygrad.ReleaseReaper
 ```
 
 Port: `{:spawn_executable, python}` with `[:binary, :exit_status, packet: 4,
@@ -120,7 +120,7 @@ M0 flake+probe · M1 protocol+CPU worker · M2 graph IR+lowering · M3 TinyJit+c
 
 ## Definition of done (0.1.0)
 
-`ExTinygrad.jit(Nx.Defn.value_and_grad(&loss/1))` for a small MLP runs on the RX
+`NxTinygrad.jit(Nx.Defn.value_and_grad(&loss/1))` for a small MLP runs on the RX
 7900 XT through `KFD+AMD:LLVM`, agrees with `Nx.BinaryBackend` within f32
 tolerance, replays a cached captured graph with one execute RPC per call, keeps
 intermediates on-device, releases dropped tensors, survives worker restart (stale

@@ -1,6 +1,6 @@
-"""Dtype mapping between ex_tinygrad's stable names, numpy, and tinygrad.
+"""Dtype mapping between nx_tinygrad's stable names, numpy, and tinygrad.
 
-ex_tinygrad owns a small set of stable dtype names that both Elixir and Python
+nx_tinygrad owns a small set of stable dtype names that both Elixir and Python
 agree on. This module is the single source of truth on the Python side.
 
 v0.1 required: f32, s32, u8. We also map a handful of others that tinygrad and

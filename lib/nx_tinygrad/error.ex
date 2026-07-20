@@ -1,6 +1,6 @@
-defmodule ExTinygrad.Error do
+defmodule NxTinygrad.Error do
   @moduledoc """
-  Base exception for ex_tinygrad. Specific failures use the more precise
+  Base exception for nx_tinygrad. Specific failures use the more precise
   exceptions defined in this file.
   """
   defexception [:message, :details]
@@ -15,20 +15,20 @@ defmodule ExTinygrad.Error do
   end
 end
 
-defmodule ExTinygrad.CompileError do
-  @moduledoc "Raised when an Nx expression cannot be lowered to the ex_tinygrad graph IR."
+defmodule NxTinygrad.CompileError do
+  @moduledoc "Raised when an Nx expression cannot be lowered to the nx_tinygrad graph IR."
   defexception [:message, :operation, :path, :input_specs, :output_spec, :hint]
 
   @impl true
   def message(%__MODULE__{message: message}), do: message
 end
 
-defmodule ExTinygrad.ProtocolError do
+defmodule NxTinygrad.ProtocolError do
   @moduledoc "Raised when a worker frame violates the wire protocol."
   defexception [:message]
 end
 
-defmodule ExTinygrad.WorkerError do
+defmodule NxTinygrad.WorkerError do
   @moduledoc """
   A structured error returned by the Python worker. Preserves the worker's
   error class, command, generation, device and structured details.
@@ -41,7 +41,7 @@ defmodule ExTinygrad.WorkerError do
   end
 end
 
-defmodule ExTinygrad.WorkerCrashedError do
+defmodule NxTinygrad.WorkerCrashedError do
   @moduledoc "Raised when the Python worker process crashes or exits unexpectedly."
   defexception [:message, :exit_status, :generation]
 
@@ -50,7 +50,7 @@ defmodule ExTinygrad.WorkerCrashedError do
   def message(%__MODULE__{message: message}), do: message
 end
 
-defmodule ExTinygrad.StaleTensorError do
+defmodule NxTinygrad.StaleTensorError do
   @moduledoc """
   Raised when a backend tensor references a worker generation that no longer
   exists (the worker restarted). Its GPU data cannot be recovered.
@@ -66,7 +66,7 @@ defmodule ExTinygrad.StaleTensorError do
   def message(%__MODULE__{message: message}), do: message
 end
 
-defmodule ExTinygrad.UnsupportedOperationError do
+defmodule NxTinygrad.UnsupportedOperationError do
   @moduledoc "Raised when a graph references an operation the worker does not support."
   defexception [:message, :operation]
 
@@ -74,7 +74,7 @@ defmodule ExTinygrad.UnsupportedOperationError do
   def message(%__MODULE__{message: message}), do: message
 end
 
-defmodule ExTinygrad.DeviceUnavailableError do
+defmodule NxTinygrad.DeviceUnavailableError do
   @moduledoc "Raised when the requested tinygrad device cannot be opened."
   defexception [:message, :device]
 

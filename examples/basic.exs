@@ -14,8 +14,8 @@ x = Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
 weights = Nx.tensor([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
 bias = Nx.tensor([0.01, 0.02])
 
-predict = ExTinygrad.jit(&Basic.predict/3)
+predict = NxTinygrad.jit(&Basic.predict/3)
 result = predict.(x, weights, bias)
 
-IO.inspect(Nx.backend_transfer(result), label: "ex_tinygrad")
+IO.inspect(Nx.backend_transfer(result), label: "nx_tinygrad")
 IO.inspect(Basic.predict(x, weights, bias), label: "reference (BinaryBackend)")

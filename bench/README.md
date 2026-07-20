@@ -2,7 +2,7 @@
 
 ```sh
 # Three-way: plain Nx (BinaryBackend) vs Nx→tinygrad CPU vs Nx→tinygrad GPU.
-EX_TINYGRAD_GPU_TESTS=1 mix run bench/nx_backends.exs   # GPU row needs an AMD device
+NX_TINYGRAD_GPU_TESTS=1 mix run bench/nx_backends.exs   # GPU row needs an AMD device
 
 # Focused scripts.
 mix run bench/matmul.exs
@@ -17,8 +17,8 @@ Reference machine: **Ryzen 5 5600X** (CPU) + **Radeon RX 7900 XT / gfx1100** (GP
 tinygrad 0.13, via Benchee. The **same Nx computation** is run three ways:
 
 - **nx (binary, cpu)** — plain Nx on `Nx.BinaryBackend`, eager on the host.
-- **nx→tinygrad (cpu)** — `ExTinygrad.jit`, CPU worker.
-- **nx→tinygrad (gpu)** — `ExTinygrad.jit`, AMD worker (`KFD+AMD:LLVM`).
+- **nx→tinygrad (cpu)** — `NxTinygrad.jit`, CPU worker.
+- **nx→tinygrad (gpu)** — `NxTinygrad.jit`, AMD worker (`KFD+AMD:LLVM`).
 
 Methodology: graphs are compiled + captured once (warmup); inputs are resident on
 the target device; each call is a warm replay followed by a device `synchronize`

@@ -1,4 +1,4 @@
-defmodule ExTinygrad.Graph do
+defmodule NxTinygrad.Graph do
   @moduledoc """
   The versioned, deterministic tensor graph IR sent to the worker.
 

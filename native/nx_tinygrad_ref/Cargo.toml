@@ -1,5 +1,5 @@
 [package]
-name = "ex_tinygrad_ref"
+name = "nx_tinygrad_ref"
 version = "0.1.0"
 authors = []
 edition = "2021"

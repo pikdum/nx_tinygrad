@@ -1,6 +1,6 @@
 # AMD on NixOS without ROCm
 
-ex_tinygrad drives AMD GPUs through tinygrad's **native KFD interface** and
+nx_tinygrad drives AMD GPUs through tinygrad's **native KFD interface** and
 compiles kernels with **libLLVM** (`AMD_LLVM=1`). It needs none of ROCm, HIP,
 comgr, rocBLAS, or MIOpen.
 
@@ -23,7 +23,7 @@ KFD+AMD:LLVM  ->  DEV=KFD+AMD:LLVM   (interface KFD, backend AMD, renderer LLVM)
                   tensors are created on backend "AMD"
 ```
 
-`ExTinygrad.Device` passes the string through as `DEV` (defaulting a bare `AMD`
+`NxTinygrad.Device` passes the string through as `DEV` (defaulting a bare `AMD`
 to KFD + LLVM; never PCI/USB, which can unbind amdgpu). `DEV` is read at import
 time, so the worker Port is started with it already set. The old `AMD_IFACE` /
 `AMD_LLVM` environment variables are deprecated in tinygrad 0.13.
@@ -48,7 +48,7 @@ which fails if any ROCm/HIP/comgr path appears in the worker's runtime closure.
 ## Running the GPU tests
 
 ```sh
-EX_TINYGRAD_GPU_TESTS=1 mix test test/gpu
+NX_TINYGRAD_GPU_TESTS=1 mix test test/gpu
 ```
 
 These start a `:amd` worker on `KFD+AMD:LLVM` and cover device info, f32 parity,
@@ -57,7 +57,7 @@ lifecycle test.
 
 ## Note on the LLVM vs comgr path
 
-ex_tinygrad uses the LLVM renderer (the `:LLVM` in `KFD+AMD:LLVM`), so kernels are
+nx_tinygrad uses the LLVM renderer (the `:LLVM` in `KFD+AMD:LLVM`), so kernels are
 compiled with libLLVM and the entire ROCm/HIP/comgr stack is unnecessary. We
 build plain `python3Packages.tinygrad` (no `rocmSupport`), keeping the closure
 ROCm-free.

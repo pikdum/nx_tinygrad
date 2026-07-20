@@ -1,26 +1,26 @@
-defmodule ExTinygrad.Backend do
+defmodule NxTinygrad.Backend do
   @moduledoc """
   An `Nx.Backend` whose tensors live as buffers in a Python worker.
 
   Only data movement is supported eagerly (`from_binary`, `to_binary`,
   `backend_copy`, `backend_transfer`, `backend_deallocate`, `inspect`).
-  Elementwise/reduction/etc. operations must go through `ExTinygrad.jit/2` or
+  Elementwise/reduction/etc. operations must go through `NxTinygrad.jit/2` or
   `Nx.Defn.jit/2` — calling them eagerly raises, rather than silently falling
   back to another backend.
 
   The backend struct records the worker, its generation, and the buffer handle.
   A tensor whose generation no longer matches the worker (a restart) is stale:
-  its data cannot be recovered and using it raises `ExTinygrad.StaleTensorError`.
+  its data cannot be recovered and using it raises `NxTinygrad.StaleTensorError`.
   """
   @behaviour Nx.Backend
 
   defstruct [:ref, :worker, :generation, :shape, :type]
 
-  alias ExTinygrad.{Dtype, TensorRef, Worker, WorkerIds}
+  alias NxTinygrad.{Dtype, TensorRef, Worker, WorkerIds}
 
   @eager """
-  ExTinygrad eager operations are not supported in version 0.1.
-  Wrap this computation in Nx.Defn.jit/2 or ExTinygrad.jit/2.
+  NxTinygrad eager operations are not supported in version 0.1.
+  Wrap this computation in Nx.Defn.jit/2 or NxTinygrad.jit/2.
   """
 
   # -- allocation / data movement -----------------------------------------
@@ -36,7 +36,7 @@ defmodule ExTinygrad.Backend do
     {%{"id" => handle}, []} =
       request!(worker, "upload", %{"shape" => Tuple.to_list(shape), "dtype" => dtype}, [binary])
 
-    :telemetry.execute([:ex_tinygrad, :transfer, :upload], %{bytes: byte_size(binary)}, %{worker: worker})
+    :telemetry.execute([:nx_tinygrad, :transfer, :upload], %{bytes: byte_size(binary)}, %{worker: worker})
     %{out | data: build(handle, worker, shape, type)}
   end
 
@@ -44,7 +44,7 @@ defmodule ExTinygrad.Backend do
   def to_binary(%Nx.Tensor{data: %__MODULE__{} = b, type: {_, bits}}, limit) do
     ensure_fresh!(b)
     {_meta, [blob]} = request!(b.worker, "download", %{"id" => handle(b)})
-    :telemetry.execute([:ex_tinygrad, :transfer, :download], %{bytes: byte_size(blob)}, %{worker: b.worker})
+    :telemetry.execute([:nx_tinygrad, :transfer, :download], %{bytes: byte_size(blob)}, %{worker: b.worker})
     keep = min(byte_size(blob), limit * div(bits, 8))
     binary_part(blob, 0, keep)
   end
@@ -85,7 +85,7 @@ defmodule ExTinygrad.Backend do
     binary = Nx.to_binary(tensor, if(limit == :infinity, do: [], else: [limit: limit + 1]))
     Nx.Backend.inspect(tensor, binary, inspect_opts)
   rescue
-    _ -> Inspect.Algebra.string("#ExTinygrad.Backend<data unavailable (worker restarted?)>")
+    _ -> Inspect.Algebra.string("#NxTinygrad.Backend<data unavailable (worker restarted?)>")
   end
 
   # -- internals ----------------------------------------------------------
@@ -113,7 +113,7 @@ defmodule ExTinygrad.Backend do
     current = Worker.generation(worker)
 
     if current != gen do
-      raise ExTinygrad.StaleTensorError,
+      raise NxTinygrad.StaleTensorError,
         worker: worker,
         tensor_generation: gen,
         worker_generation: current
@@ -198,7 +198,7 @@ defmodule ExTinygrad.Backend do
 
     @impl true
     def unquote(name)(unquote_splicing(args)) do
-      raise ExTinygrad.Error, message: "#{unquote(name)}/#{unquote(arity)}: " <> unquote(@eager)
+      raise NxTinygrad.Error, message: "#{unquote(name)}/#{unquote(arity)}: " <> unquote(@eager)
     end
   end
 end

@@ -1,4 +1,4 @@
-defmodule ExTinygrad do
+defmodule NxTinygrad do
   @moduledoc """
   An Elixir Nx compiler and tensor backend that uses [tinygrad](https://tinygrad.org)
   as the optimizing compiler and accelerator runtime.
@@ -8,18 +8,18 @@ defmodule ExTinygrad do
 
   ## Usage
 
-      predict = ExTinygrad.jit(&Model.predict/3, device: "KFD+AMD:LLVM")
+      predict = NxTinygrad.jit(&Model.predict/3, device: "KFD+AMD:LLVM")
       result = predict.(x, weights, bias)
 
   Equivalent direct Nx usage:
 
       predict =
         Nx.Defn.jit(&Model.predict/3,
-          compiler: ExTinygrad.Compiler,
+          compiler: NxTinygrad.Compiler,
           device: "KFD+AMD:LLVM"
         )
 
-  See `ExTinygrad.Compiler` for the compiler and `ExTinygrad.Backend` for the
+  See `NxTinygrad.Compiler` for the compiler and `NxTinygrad.Backend` for the
   tensor backend.
   """
 
@@ -27,9 +27,9 @@ defmodule ExTinygrad do
   def version, do: unquote(Mix.Project.config()[:version])
 
   @doc """
-  JIT-compile `fun` with the ExTinygrad compiler.
+  JIT-compile `fun` with the NxTinygrad compiler.
 
-  Equivalent to `Nx.Defn.jit(fun, compiler: ExTinygrad.Compiler)` with the given
+  Equivalent to `Nx.Defn.jit(fun, compiler: NxTinygrad.Compiler)` with the given
   options merged in.
   """
   def jit(fun, opts \\ []), do: Nx.Defn.jit(fun, put_compiler(opts))
@@ -42,21 +42,21 @@ defmodule ExTinygrad do
   @doc "Return the worker's `device_info` map."
   def device_info(opts \\ []) do
     worker = Keyword.get(opts, :worker, :default)
-    {:ok, info, []} = ExTinygrad.Worker.request(worker, "device_info", %{})
+    {:ok, info, []} = NxTinygrad.Worker.request(worker, "device_info", %{})
     info
   end
 
   @doc "Return the worker's statistics map."
   def worker_stats(opts \\ []) do
     worker = Keyword.get(opts, :worker, :default)
-    {:ok, stats, []} = ExTinygrad.Worker.request(worker, "stats", %{})
+    {:ok, stats, []} = NxTinygrad.Worker.request(worker, "stats", %{})
     stats
   end
 
   @doc "Block until all queued device work on the worker completes."
   def synchronize(opts \\ []) do
     worker = Keyword.get(opts, :worker, :default)
-    {:ok, %{}, []} = ExTinygrad.Worker.request(worker, "synchronize", %{})
+    {:ok, %{}, []} = NxTinygrad.Worker.request(worker, "synchronize", %{})
     :ok
   end
 
@@ -68,11 +68,11 @@ defmodule ExTinygrad do
   """
   def release(tensor_or_container) do
     tensor_or_container
-    |> ExTinygrad.OutputContainer.flatten()
+    |> NxTinygrad.OutputContainer.flatten()
     |> Enum.each(&Nx.backend_deallocate/1)
 
     :ok
   end
 
-  defp put_compiler(opts), do: Keyword.put(opts, :compiler, ExTinygrad.Compiler)
+  defp put_compiler(opts), do: Keyword.put(opts, :compiler, NxTinygrad.Compiler)
 end

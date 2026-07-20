@@ -1,4 +1,4 @@
-# ex_tinygrad
+# nx_tinygrad
 
 An [Elixir](https://elixir-lang.org) [Nx](https://github.com/elixir-nx/nx)
 compiler and tensor backend that uses [tinygrad](https://tinygrad.org) as the
@@ -8,7 +8,7 @@ optimizing compiler and accelerator runtime.
 Elixir / Nx / Axon
         │
         ▼
-ExTinygrad.Compiler ──► versioned serialized tensor graph
+NxTinygrad.Compiler ──► versioned serialized tensor graph
         │
         ▼
 supervised Python worker (Erlang Port)
@@ -61,7 +61,7 @@ defmodule Example do
   end
 end
 
-predict = ExTinygrad.jit(&Example.predict/3, device: "KFD+AMD:LLVM")
+predict = NxTinygrad.jit(&Example.predict/3, device: "KFD+AMD:LLVM")
 result = predict.(x, weights, bias)
 ```
 
@@ -77,9 +77,9 @@ result = predict.(x, weights, bias)
 
 ## Telemetry
 
-Emits `[:ex_tinygrad, :compile | :execute, :start | :stop]` spans,
-`[:ex_tinygrad, :transfer, :upload | :download]`, and
-`[:ex_tinygrad, :worker, :restart]`.
+Emits `[:nx_tinygrad, :compile | :execute, :start | :stop]` spans,
+`[:nx_tinygrad, :transfer, :upload | :download]`, and
+`[:nx_tinygrad, :worker, :restart]`.
 
 ## License
 

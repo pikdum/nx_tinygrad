@@ -1,20 +1,20 @@
-defmodule ExTinygrad.GPU.LeakTest do
+defmodule NxTinygrad.GPU.LeakTest do
   @moduledoc "Ten-thousand-iteration GPU memory lifecycle test."
   use ExUnit.Case, async: false
   @moduletag :gpu
   @moduletag timeout: 600_000
 
-  alias ExTinygrad.{Backend, ReleaseReaper}
+  alias NxTinygrad.{Backend, ReleaseReaper}
 
   setup_all do
-    ExTinygrad.GPUHelpers.ensure_amd_worker()
+    NxTinygrad.GPUHelpers.ensure_amd_worker()
     :ok
   end
 
   defp settled_buffer_count do
     ReleaseReaper.drain_now()
-    {:ok, %{}, []} = ExTinygrad.Worker.request(:amd, "synchronize", %{})
-    {:ok, stats, []} = ExTinygrad.Worker.request(:amd, "stats", %{})
+    {:ok, %{}, []} = NxTinygrad.Worker.request(:amd, "synchronize", %{})
+    {:ok, stats, []} = NxTinygrad.Worker.request(:amd, "stats", %{})
     stats["buffer_count"]
   end
 

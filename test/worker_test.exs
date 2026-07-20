@@ -1,8 +1,8 @@
-defmodule ExTinygrad.WorkerTest do
+defmodule NxTinygrad.WorkerTest do
   @moduledoc "Integration tests that exercise the full Elixir <-> Python path on CPU."
   use ExUnit.Case, async: false
 
-  alias ExTinygrad.Worker
+  alias NxTinygrad.Worker
 
   setup do
     # The application boots a :default CPU worker; make sure it's up.
@@ -56,12 +56,12 @@ defmodule ExTinygrad.WorkerTest do
   end
 
   test "unknown command yields a structured protocol error" do
-    assert {:error, %ExTinygrad.WorkerError{class: "ProtocolError"}} =
+    assert {:error, %NxTinygrad.WorkerError{class: "ProtocolError"}} =
              Worker.request(:default, "bogus_command", %{})
   end
 
   test "downloading a released/unknown buffer raises StaleReference" do
-    assert {:error, %ExTinygrad.WorkerError{class: "StaleReference"}} =
+    assert {:error, %NxTinygrad.WorkerError{class: "StaleReference"}} =
              Worker.request(:default, "download", %{"id" => 999_999})
   end
 end

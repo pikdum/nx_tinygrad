@@ -1,4 +1,4 @@
-defmodule ExTinygrad.Device do
+defmodule NxTinygrad.Device do
   @moduledoc """
   Parsing of logical device strings into a concrete tinygrad configuration.
 
@@ -33,13 +33,13 @@ defmodule ExTinygrad.Device do
 
   ## Examples
 
-      iex> ExTinygrad.Device.parse("KFD+AMD:LLVM").dev
+      iex> NxTinygrad.Device.parse("KFD+AMD:LLVM").dev
       "KFD+AMD:LLVM"
 
-      iex> ExTinygrad.Device.parse("AMD").dev
+      iex> NxTinygrad.Device.parse("AMD").dev
       "KFD+AMD:LLVM"
 
-      iex> ExTinygrad.Device.parse("CPU").tinygrad_device
+      iex> NxTinygrad.Device.parse("CPU").tinygrad_device
       "CPU"
   """
   @spec parse(String.t() | nil) :: t()

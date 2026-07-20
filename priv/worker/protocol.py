@@ -1,4 +1,4 @@
-"""Framed wire protocol for the ex_tinygrad worker.
+"""Framed wire protocol for the nx_tinygrad worker.
 
 Two layers:
 

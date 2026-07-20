@@ -2,29 +2,29 @@
 
 ## The worker won't start
 
-- `ExTinygrad.Config.python_executable/0` resolves the interpreter from
-  `EX_TINYGRAD_PYTHON` (set by the Nix devshell), falling back to `python3` on
+- `NxTinygrad.Config.python_executable/0` resolves the interpreter from
+  `NX_TINYGRAD_PYTHON` (set by the Nix devshell), falling back to `python3` on
   `PATH`. Inside `nix develop` this is set automatically.
 - Run the probe directly: `python priv/worker/device.py CPU` (or `KFD+AMD:LLVM`).
   It prints a device_info JSON, or an error.
 
-## `ExTinygrad.CompileError: unsupported Nx operation: ...`
+## `NxTinygrad.CompileError: unsupported Nx operation: ...`
 
 The operation is not lowered in v0.1 (see [operation-coverage.md](operation-coverage.md)).
 This is intentional — there is no silent host fallback. Restructure the defn to
-use supported operations, or add the op to `ExTinygrad.Lowering` +
+use supported operations, or add the op to `NxTinygrad.Lowering` +
 `priv/worker/operations.py`.
 
-## `ExTinygrad.StaleTensorError`
+## `NxTinygrad.StaleTensorError`
 
 A device tensor outlived its worker (the worker restarted, so its buffers are
 gone). Its data cannot be recovered. Recompute from host-resident inputs; cached
 graphs recompile transparently on the new generation.
 
-## Eager op raises `ExTinygrad eager operations are not supported`
+## Eager op raises `NxTinygrad eager operations are not supported`
 
-`ExTinygrad.Backend` only moves data; it does not run eager math. Wrap the
-computation in `ExTinygrad.jit/2` (or `Nx.Defn.jit/2`), or transfer the tensor to
+`NxTinygrad.Backend` only moves data; it does not run eager math. Wrap the
+computation in `NxTinygrad.jit/2` (or `Nx.Defn.jit/2`), or transfer the tensor to
 `Nx.BinaryBackend` first with `Nx.backend_transfer/1`.
 
 ## AMD device not found / not usable
@@ -43,7 +43,7 @@ are cached and quiet.
 
 ## Rust NIF fails to build
 
-The `ex_tinygrad_ref` crate needs `cargo`/`rustc` and a C toolchain, all provided
+The `nx_tinygrad_ref` crate needs `cargo`/`rustc` and a C toolchain, all provided
 by the devshell. The first `mix compile` fetches Rust crates from crates.io
 (needs network once). `MIX_REBAR3` in the devshell points at a working rebar3
 (the OTP-29 build is broken upstream).

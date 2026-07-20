@@ -1,4 +1,4 @@
-defmodule ExTinygrad.GraphCacheKey do
+defmodule NxTinygrad.GraphCacheKey do
   @moduledoc """
   Computes the cache key for a compiled graph.
 
@@ -8,7 +8,7 @@ defmodule ExTinygrad.GraphCacheKey do
   protocol version, the device string, and any compile options that affect
   compilation.
   """
-  alias ExTinygrad.Graph
+  alias NxTinygrad.Graph
 
   @protocol_version 1
 

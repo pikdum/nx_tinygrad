@@ -1,15 +1,15 @@
-defmodule ExTinygrad.Lowering do
+defmodule NxTinygrad.Lowering do
   @moduledoc """
-  Lowers an `Nx.Defn.Expr` DAG into the deterministic `ExTinygrad.Graph` IR.
+  Lowers an `Nx.Defn.Expr` DAG into the deterministic `NxTinygrad.Graph` IR.
 
   The traversal is post-order, assigning sequential ids so children always get
   smaller ids than their parents (topological). Ids are our own — Nx expression
   ids (references) are used only to deduplicate shared subexpressions.
 
-  Unsupported operations raise `ExTinygrad.CompileError` before anything is sent
+  Unsupported operations raise `NxTinygrad.CompileError` before anything is sent
   to Python; there is no silent host fallback.
   """
-  alias ExTinygrad.{Dtype, Graph}
+  alias NxTinygrad.{Dtype, Graph}
   alias Nx.Defn.Expr
   alias Nx.Tensor, as: T
 
@@ -18,7 +18,7 @@ defmodule ExTinygrad.Lowering do
   @comparison ~w(equal not_equal less less_equal greater greater_equal)a
   @reduce ~w(sum reduce_max reduce_min all any)a
 
-  @doc "Lower a list of output expression tensors into an `ExTinygrad.Graph`."
+  @doc "Lower a list of output expression tensors into an `NxTinygrad.Graph`."
   @spec to_graph([T.t()]) :: Graph.t()
   def to_graph(outputs) when is_list(outputs) do
     state = %{ids: %{}, counter: 0, inputs: [], constants: [], nodes: [], blobs: [], blob_count: 0}
@@ -153,11 +153,11 @@ defmodule ExTinygrad.Lowering do
   end
 
   defp lower_new(%T{data: %Expr{op: op}} = t, _state) do
-    raise ExTinygrad.CompileError,
+    raise NxTinygrad.CompileError,
       message: "unsupported Nx operation: #{op}",
       operation: op,
       output_spec: %{shape: shape_of(t), dtype: safe_dtype(t)},
-      hint: "operation #{op} is not yet lowered by ExTinygrad in v0.1"
+      hint: "operation #{op} is not yet lowered by NxTinygrad in v0.1"
   end
 
   # -- helpers ------------------------------------------------------------

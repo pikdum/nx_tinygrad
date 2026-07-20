@@ -2,7 +2,7 @@
 #
 #   mix run bench/mlp.exs
 
-alias ExTinygrad.Backend
+alias NxTinygrad.Backend
 
 defmodule BenchMLP do
   import Nx.Defn
@@ -40,11 +40,11 @@ avg = fn f, iters ->
   us / iters / 1000.0
 end
 
-infer = ExTinygrad.jit(&BenchMLP.predict/2, worker: worker, output: :device)
+infer = NxTinygrad.jit(&BenchMLP.predict/2, worker: worker, output: :device)
 infer.(pdev, xdev)
 IO.puts("== MLP (#{batch}x#{din} -> #{dh} -> #{dout}) ==")
 IO.puts("inference warm       : #{Float.round(avg.(fn -> infer.(pdev, xdev) end, 20), 3)} ms/call")
 
-vg = ExTinygrad.jit(&BenchMLP.value_and_grad/3, worker: worker, output: :device)
+vg = NxTinygrad.jit(&BenchMLP.value_and_grad/3, worker: worker, output: :device)
 vg.(pdev, xdev, ydev)
 IO.puts("value_and_grad warm  : #{Float.round(avg.(fn -> vg.(pdev, xdev, ydev) end, 20), 3)} ms/call")

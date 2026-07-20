@@ -1,5 +1,5 @@
 {
-  description = "ex_tinygrad — an Elixir Nx compiler and tensor backend using tinygrad (AMD, native KFD + LLVM, no ROCm)";
+  description = "nx_tinygrad — an Elixir Nx compiler and tensor backend using tinygrad (AMD, native KFD + LLVM, no ROCm)";
 
   # nixos-unstable: Elixir 1.20 / OTP 29 (proper releases) via beam29Packages and
   # a ROCm-free tinygrad. We don't depend on ROCm, so there's no heavy closure to
@@ -36,8 +36,8 @@
       # Packaged worker: a wrapper that runs priv/worker/main.py with the pinned
       # interpreter. main.py adds its own directory to sys.path, so no PYTHONPATH
       # juggling is required.
-      ex-tinygrad-worker = pkgs.stdenv.mkDerivation {
-        pname = "ex-tinygrad-worker";
+      nx-tinygrad-worker = pkgs.stdenv.mkDerivation {
+        pname = "nx-tinygrad-worker";
         version = "0.1.0";
         src = ./priv/worker;
         nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -45,10 +45,10 @@
         dontBuild = true;
         installPhase = ''
           runHook preInstall
-          mkdir -p "$out/lib/ex_tinygrad_worker" "$out/bin"
-          cp -r ./* "$out/lib/ex_tinygrad_worker/"
-          makeWrapper ${workerPython}/bin/python "$out/bin/ex_tinygrad_worker" \
-            --add-flags "$out/lib/ex_tinygrad_worker/main.py" \
+          mkdir -p "$out/lib/nx_tinygrad_worker" "$out/bin"
+          cp -r ./* "$out/lib/nx_tinygrad_worker/"
+          makeWrapper ${workerPython}/bin/python "$out/bin/nx_tinygrad_worker" \
+            --add-flags "$out/lib/nx_tinygrad_worker/main.py" \
             --set PYTHONUNBUFFERED 1
           runHook postInstall
         '';
@@ -68,8 +68,8 @@
     in
     {
       packages.${system} = {
-        default = ex-tinygrad-worker;
-        inherit ex-tinygrad-worker;
+        default = nx-tinygrad-worker;
+        inherit nx-tinygrad-worker;
       };
 
       devShells.${system}.default = pkgs.mkShell {
@@ -81,7 +81,7 @@
           # rebar deps such as :telemetry.
           pkgs.rebar3
           # Shell `python`/`pytest` include pytest for running worker tests; the
-          # actual worker interpreter (EX_TINYGRAD_PYTHON) stays lean.
+          # actual worker interpreter (NX_TINYGRAD_PYTHON) stays lean.
           workerPythonTest
           pkgs.cargo
           pkgs.rustc
@@ -93,7 +93,7 @@
 
         env = {
           # The Elixir Worker spawns this interpreter running priv/worker/main.py.
-          EX_TINYGRAD_PYTHON = "${workerPython}/bin/python";
+          NX_TINYGRAD_PYTHON = "${workerPython}/bin/python";
           # Use nixpkgs' rebar3 rather than mix's downloaded one (which is broken
           # under Nix), so rebar deps like :telemetry compile.
           MIX_REBAR3 = "${pkgs.rebar3}/bin/rebar3";
@@ -104,7 +104,7 @@
 
         shellHook = ''
           export PATH="$MIX_HOME/bin:$HEX_HOME/bin:$PATH"
-          echo "ex_tinygrad devshell"
+          echo "nx_tinygrad devshell"
           echo "  elixir ${elixir.version} / erlang ${erlang.version}"
           echo "  worker python: ${workerPython}/bin/python (tinygrad ${pkgs.python3Packages.tinygrad.version}, no ROCm)"
         '';
@@ -115,7 +115,7 @@
         no-rocm-closure =
           pkgs.runCommand "no-rocm-closure"
             {
-              closure = pkgs.closureInfo { rootPaths = [ ex-tinygrad-worker ]; };
+              closure = pkgs.closureInfo { rootPaths = [ nx-tinygrad-worker ]; };
             }
             ''
               echo "Scanning worker closure for ROCm/HIP/comgr paths..."

@@ -20,10 +20,10 @@ Living record of pinned versions and milestone progress. Updated as work lands.
 ## Device string note
 
 On tinygrad 0.13, `KFD+AMD:LLVM` is a **native** `DEV` string: the interface
-prefix (`KFD+`) and renderer suffix (`:LLVM`) are part of it. ex_tinygrad passes
+prefix (`KFD+`) and renderer suffix (`:LLVM`) are part of it. nx_tinygrad passes
 it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
 `AMD_IFACE`/`AMD_LLVM` environment variables are deprecated in 0.13. See
-`ExTinygrad.Device` / `priv/worker/device.py`.
+`NxTinygrad.Device` / `priv/worker/device.py`.
 
 ## Milestones
 

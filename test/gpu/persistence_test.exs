@@ -1,18 +1,18 @@
-defmodule ExTinygrad.GPU.PersistenceTest do
+defmodule NxTinygrad.GPU.PersistenceTest do
   @moduledoc "Device-resident tensors persist and stay immutable across executions."
   use ExUnit.Case, async: false
   @moduletag :gpu
 
-  alias ExTinygrad.Backend
+  alias NxTinygrad.Backend
 
   setup_all do
-    ExTinygrad.GPUHelpers.ensure_amd_worker()
+    NxTinygrad.GPUHelpers.ensure_amd_worker()
     :ok
   end
 
   test "outputs stay resident on device and can be reused as inputs" do
     x = Nx.tensor([[1.0, 2.0], [3.0, 4.0]]) |> Nx.backend_transfer({Backend, worker: :amd})
-    double = ExTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, worker: :amd, output: :device)
+    double = NxTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, worker: :amd, output: :device)
 
     r1 = double.(x)
     assert %Backend{worker: :amd} = r1.data
@@ -23,7 +23,7 @@ defmodule ExTinygrad.GPU.PersistenceTest do
   end
 
   test "a retained output is unchanged after later executions (immutability)" do
-    f = ExTinygrad.jit(fn t -> Nx.add(t, 1.0) end, worker: :amd, output: :device)
+    f = NxTinygrad.jit(fn t -> Nx.add(t, 1.0) end, worker: :amd, output: :device)
 
     a = f.(Nx.tensor([10.0, 20.0, 30.0]))
     snapshot = Nx.to_flat_list(Nx.backend_copy(a, Nx.BinaryBackend))

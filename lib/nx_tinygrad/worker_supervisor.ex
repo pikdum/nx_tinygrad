@@ -1,11 +1,11 @@
-defmodule ExTinygrad.WorkerSupervisor do
+defmodule NxTinygrad.WorkerSupervisor do
   @moduledoc """
   Supervises worker processes. For v0.1 there is a single `:default` worker per
   GPU; the tree is kept `one_for_one` so a worker can restart independently.
   """
   use Supervisor
 
-  alias ExTinygrad.Config
+  alias NxTinygrad.Config
 
   def start_link(opts) do
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
@@ -40,7 +40,7 @@ defmodule ExTinygrad.WorkerSupervisor do
   end
 
   defp worker_name(device) do
-    if device == Config.device(), do: :default, else: String.to_atom("ex_tinygrad_worker_" <> device)
+    if device == Config.device(), do: :default, else: String.to_atom("nx_tinygrad_worker_" <> device)
   end
 
   defp ensure_started(:default, _device), do: :ok
@@ -54,6 +54,6 @@ defmodule ExTinygrad.WorkerSupervisor do
   end
 
   defp worker_spec(name, device) do
-    Supervisor.child_spec({ExTinygrad.Worker, [name: name, device: device]}, id: {ExTinygrad.Worker, name})
+    Supervisor.child_spec({NxTinygrad.Worker, [name: name, device: device]}, id: {NxTinygrad.Worker, name})
   end
 end

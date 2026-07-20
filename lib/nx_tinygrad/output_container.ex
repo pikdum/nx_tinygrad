@@ -1,4 +1,4 @@
-defmodule ExTinygrad.OutputContainer do
+defmodule NxTinygrad.OutputContainer do
   @moduledoc """
   Flattening and reconstruction of arbitrary `Nx.Container` output structures.
 

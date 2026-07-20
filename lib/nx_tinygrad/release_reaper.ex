@@ -1,4 +1,4 @@
-defmodule ExTinygrad.ReleaseReaper do
+defmodule NxTinygrad.ReleaseReaper do
   @moduledoc """
   Periodically drains the native release queue (populated when `TensorRef`
   resources are garbage-collected) and sends batched `release` requests to the
@@ -9,7 +9,7 @@ defmodule ExTinygrad.ReleaseReaper do
   """
   use GenServer
 
-  alias ExTinygrad.{TensorRef, Worker, WorkerIds}
+  alias NxTinygrad.{TensorRef, Worker, WorkerIds}
 
   @interval 50
 

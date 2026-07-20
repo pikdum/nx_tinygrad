@@ -1,4 +1,4 @@
-//! Tensor-reference resource for ex_tinygrad.
+//! Tensor-reference resource for nx_tinygrad.
 //!
 //! This NIF owns only reference *metadata* — a worker id, a generation, and a
 //! buffer handle. It never touches tinygrad, Python, KFD, or any GPU API.
@@ -6,7 +6,7 @@
 //! When a `TensorRef` resource is garbage-collected, its `Drop` impl atomically
 //! marks it released and pushes `{worker_id, generation, handle}` onto a global
 //! queue. It never blocks on I/O and never talks to the Port.
-//! `ExTinygrad.ReleaseReaper` drains the queue and sends batched release requests.
+//! `NxTinygrad.ReleaseReaper` drains the queue and sends batched release requests.
 
 use rustler::{Resource, ResourceArc};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -77,4 +77,4 @@ fn drain_releases() -> Vec<(u64, u64, u64)> {
     }
 }
 
-rustler::init!("Elixir.ExTinygrad.TensorRef");
+rustler::init!("Elixir.NxTinygrad.TensorRef");

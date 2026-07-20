@@ -20,6 +20,6 @@ params = {
 
 x = Nx.tensor([[0.5, -0.3, 0.8], [0.1, 0.2, -0.4]])
 
-predict = ExTinygrad.jit(&MLP.predict/2)
-IO.inspect(Nx.backend_transfer(predict.(params, x)), label: "ex_tinygrad prediction")
+predict = NxTinygrad.jit(&MLP.predict/2)
+IO.inspect(Nx.backend_transfer(predict.(params, x)), label: "nx_tinygrad prediction")
 IO.inspect(MLP.predict(params, x), label: "reference")

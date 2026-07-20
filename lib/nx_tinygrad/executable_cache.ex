@@ -1,4 +1,4 @@
-defmodule ExTinygrad.ExecutableCache do
+defmodule NxTinygrad.ExecutableCache do
   @moduledoc """
   In-memory cache mapping a graph cache key to a compiled executable in a worker.
 

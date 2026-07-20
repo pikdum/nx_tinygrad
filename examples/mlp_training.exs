@@ -1,11 +1,11 @@
-# MLP training with Nx autograd through ex_tinygrad.
+# MLP training with Nx autograd through nx_tinygrad.
 #
 #   mix run examples/mlp_training.exs
 #
 # To run on the AMD GPU, start a worker first and pass worker:/device: to jit:
 #
-#   {:ok, _} = ExTinygrad.WorkerSupervisor.start_worker(:amd, "KFD+AMD:LLVM")
-#   vg = ExTinygrad.jit(&MLP.value_and_grad/3, worker: :amd)
+#   {:ok, _} = NxTinygrad.WorkerSupervisor.start_worker(:amd, "KFD+AMD:LLVM")
+#   vg = NxTinygrad.jit(&MLP.value_and_grad/3, worker: :amd)
 
 defmodule MLP do
   import Nx.Defn
@@ -30,7 +30,7 @@ params = {Nx.multiply(w1, 0.3), Nx.broadcast(0.0, {4}), Nx.multiply(w2, 0.3), Nx
 {x, key} = Nx.Random.normal(key, shape: {16, 3}, type: :f32)
 {y, _key} = Nx.Random.normal(key, shape: {16, 2}, type: :f32)
 
-vg = ExTinygrad.jit(&MLP.value_and_grad/3)
+vg = NxTinygrad.jit(&MLP.value_and_grad/3)
 lr = 0.1
 
 params =

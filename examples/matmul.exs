@@ -6,7 +6,7 @@ n = 256
 a = Nx.iota({n, n}, type: :f32) |> Nx.divide(n * n)
 b = Nx.iota({n, n}, type: :f32) |> Nx.divide(n * n)
 
-matmul = ExTinygrad.jit(fn x, y -> Nx.dot(x, y) end)
+matmul = NxTinygrad.jit(fn x, y -> Nx.dot(x, y) end)
 
 # First call compiles + captures; subsequent calls replay.
 result = matmul.(a, b) |> Nx.backend_transfer()

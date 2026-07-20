@@ -1,6 +1,6 @@
 # Worker protocol
 
-The Elixir worker (`ExTinygrad.Worker`) talks to the Python worker
+The Elixir worker (`NxTinygrad.Worker`) talks to the Python worker
 (`priv/worker/main.py`) over an Erlang Port opened with `packet: 4`. Every
 message is length-prefixed by the Port; inside each message is an **XTG1 frame**.
 There is no pickle and no base64 — tensor data travels as raw little-endian
@@ -27,7 +27,7 @@ Every request gets exactly one response with the same request id.
 - Success: `{"ok": true, "result": {...}}`
 - Failure: `{"ok": false, "error": {"class", "message", "details", "python_traceback"}}`
 
-Implemented in `ExTinygrad.Protocol` (Elixir) and `priv/worker/protocol.py`.
+Implemented in `NxTinygrad.Protocol` (Elixir) and `priv/worker/protocol.py`.
 
 ## Commands
 

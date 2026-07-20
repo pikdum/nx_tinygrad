@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Direct tinygrad matmul baseline, to compare against ex_tinygrad warm replay.
+"""Direct tinygrad matmul baseline, to compare against nx_tinygrad warm replay.
 
     DEV=CPU python bench/direct_tinygrad.py
     DEV=AMD AMD_LLVM=1 AMD_IFACE=KFD python bench/direct_tinygrad.py   # RX 7900 XT
 
-The architecture acceptance target: warm ex_tinygrad replay within ~20% of this
+The architecture acceptance target: warm nx_tinygrad replay within ~20% of this
 for the same captured graph, when inputs and outputs are device-resident.
 """
 import os

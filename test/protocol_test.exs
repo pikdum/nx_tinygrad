@@ -1,7 +1,7 @@
-defmodule ExTinygrad.ProtocolTest do
+defmodule NxTinygrad.ProtocolTest do
   use ExUnit.Case, async: true
 
-  alias ExTinygrad.Protocol
+  alias NxTinygrad.Protocol
 
   defp roundtrip(req_id, meta, blobs) do
     {:ok, decoded} = meta |> encode(req_id, blobs) |> Protocol.decode()

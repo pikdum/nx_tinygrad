@@ -1,13 +1,13 @@
-defmodule ExTinygrad.LeakTest do
+defmodule NxTinygrad.LeakTest do
   @moduledoc "GC-triggered release keeps worker buffers bounded."
   use ExUnit.Case, async: false
 
-  alias ExTinygrad.{Backend, ReleaseReaper}
+  alias NxTinygrad.{Backend, ReleaseReaper}
 
   defp settled_buffer_count do
     ReleaseReaper.drain_now()
-    ExTinygrad.synchronize()
-    ExTinygrad.worker_stats()["buffer_count"]
+    NxTinygrad.synchronize()
+    NxTinygrad.worker_stats()["buffer_count"]
   end
 
   test "dropped device tensors are released; buffer count returns near baseline" do
@@ -39,7 +39,7 @@ defmodule ExTinygrad.LeakTest do
 
   test "explicit release is immediate and GC does not double-release" do
     t = Nx.tensor([1.0, 2.0, 3.0]) |> Nx.backend_transfer({Backend, worker: :default})
-    assert ExTinygrad.release(t) == :ok
+    assert NxTinygrad.release(t) == :ok
     # take/1 already claimed the ref, so a later dealloc is a no-op.
     assert Nx.backend_deallocate(t) == :already_deallocated
   end

@@ -1,21 +1,21 @@
-defmodule ExTinygrad.Compiler do
+defmodule NxTinygrad.Compiler do
   @moduledoc """
   `Nx.Defn.Compiler` that lowers an entire defn expression to the graph IR, sends
   it once to a Python worker, and executes it through tinygrad (one execute RPC
   per invocation).
 
-  The graph is compiled and captured once (cached by `ExTinygrad.ExecutableCache`)
+  The graph is compiled and captured once (cached by `NxTinygrad.ExecutableCache`)
   and replayed thereafter. By default outputs are device-resident
-  (`ExTinygrad.Backend`); pass `output: :host` for `Nx.BinaryBackend` results.
+  (`NxTinygrad.Backend`); pass `output: :host` for `Nx.BinaryBackend` results.
   Device-resident inputs from the same worker are passed by handle rather than
   re-uploaded.
 
-  Emits `[:ex_tinygrad, :compile | :execute, :start | :stop]` telemetry spans.
+  Emits `[:nx_tinygrad, :compile | :execute, :start | :stop]` telemetry spans.
   """
   @behaviour Nx.Defn.Compiler
   require Logger
 
-  alias ExTinygrad.{
+  alias NxTinygrad.{
     Backend,
     Config,
     Dtype,
@@ -76,7 +76,7 @@ defmodule ExTinygrad.Compiler do
   defp resolve_worker(opts) do
     cond do
       worker = Keyword.get(opts, :worker) -> worker
-      device = Keyword.get(opts, :device) -> ExTinygrad.WorkerSupervisor.worker_for_device(device)
+      device = Keyword.get(opts, :device) -> NxTinygrad.WorkerSupervisor.worker_for_device(device)
       true -> :default
     end
   end
@@ -126,7 +126,7 @@ defmodule ExTinygrad.Compiler do
   end
 
   defp compile_worker(worker, graph, opts) do
-    :telemetry.span([:ex_tinygrad, :compile], %{worker: worker, node_count: length(graph.nodes)}, fn ->
+    :telemetry.span([:nx_tinygrad, :compile], %{worker: worker, node_count: length(graph.nodes)}, fn ->
       args = %{
         "graph" => Graph.to_wire(graph),
         "validate_capture" => Keyword.get(opts, :validate_capture, true)
@@ -138,7 +138,7 @@ defmodule ExTinygrad.Compiler do
         )
 
       Logger.debug(
-        "ex_tinygrad compiled executable #{id} " <>
+        "nx_tinygrad compiled executable #{id} " <>
           "(#{result["kernel_count"]} kernels, #{Float.round(result["compile_ms"] || 0.0, 2)} ms)"
       )
 
@@ -151,7 +151,7 @@ defmodule ExTinygrad.Compiler do
   defp run_one(params, ctx) do
     metadata = %{worker: ctx.worker, executable_id: ctx.executable_id, output: ctx.output}
 
-    :telemetry.span([:ex_tinygrad, :execute], metadata, fn ->
+    :telemetry.span([:nx_tinygrad, :execute], metadata, fn ->
       {inputs, blobs} = build_inputs(params, ctx.graph, ctx.worker)
       output_mode = Atom.to_string(ctx.output)
 
@@ -183,7 +183,7 @@ defmodule ExTinygrad.Compiler do
             {[%{"kind" => "handle", "id" => Backend.handle(b)} | inputs], blobs, k}
 
           %Backend{worker: ^worker, generation: stale} ->
-            raise ExTinygrad.StaleTensorError,
+            raise NxTinygrad.StaleTensorError,
               worker: worker,
               tensor_generation: stale,
               worker_generation: generation
@@ -203,7 +203,7 @@ defmodule ExTinygrad.Compiler do
     {Enum.reverse(inputs), Enum.reverse(blobs)}
   end
 
-  # Device mode: outputs are worker handles wrapped as ExTinygrad.Backend tensors.
+  # Device mode: outputs are worker handles wrapped as NxTinygrad.Backend tensors.
   defp decode_outputs(:device, output_specs, [], worker) do
     Enum.map(output_specs, fn spec ->
       type = Dtype.to_nx!(spec["dtype"])

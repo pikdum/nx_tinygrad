@@ -1,4 +1,4 @@
-defmodule ExTinygrad.Generation do
+defmodule NxTinygrad.Generation do
   @moduledoc """
   Monotonically increasing worker generation numbers.
 

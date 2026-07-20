@@ -1,4 +1,4 @@
-defmodule ExTinygrad.Protocol do
+defmodule NxTinygrad.Protocol do
   @moduledoc """
   Encode/decode of the XTG1 wire frame carried inside each Port `packet: 4`
   message. Mirrors `priv/worker/protocol.py`.

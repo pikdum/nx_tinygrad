@@ -1,5 +1,5 @@
 """Device-string parsing, environment configuration, probing, and ROCm-load
-detection for the ex_tinygrad worker.
+detection for the nx_tinygrad worker.
 
 Logical device strings follow the spec: ``[<IFACE>+]<BACKEND>[:<RENDERER>]``,
 e.g. ``KFD+AMD:LLVM``, ``CPU``, ``AMD``.

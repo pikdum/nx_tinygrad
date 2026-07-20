@@ -1,12 +1,12 @@
-defmodule ExTinygrad.MixProject do
+defmodule NxTinygrad.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/pikdum/ex_tinygrad"
+  @source_url "https://github.com/pikdum/nx_tinygrad"
 
   def project do
     [
-      app: :ex_tinygrad,
+      app: :nx_tinygrad,
       version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -14,7 +14,7 @@ defmodule ExTinygrad.MixProject do
       deps: deps(),
       description: "An Elixir Nx compiler and tensor backend using tinygrad (AMD, native KFD + LLVM).",
       package: package(),
-      name: "ExTinygrad",
+      name: "NxTinygrad",
       source_url: @source_url,
       docs: docs(),
       test_paths: test_paths(Mix.env())
@@ -24,7 +24,7 @@ defmodule ExTinygrad.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {ExTinygrad.Application, []}
+      mod: {NxTinygrad.Application, []}
     ]
   end
 

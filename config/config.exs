@@ -1,6 +1,6 @@
 import Config
 
-config :ex_tinygrad,
+config :nx_tinygrad,
   # Default tinygrad device for the :default worker.
   device: "CPU",
   # Start the :default worker when the application boots.

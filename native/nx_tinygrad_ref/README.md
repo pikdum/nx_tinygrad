@@ -1,4 +1,4 @@
-# NIF for ExTinygrad.TensorRef
+# NIF for NxTinygrad.TensorRef
 
 ## To build the NIF module:
 
@@ -7,8 +7,8 @@
 ## To load the NIF:
 
 ```elixir
-defmodule ExTinygrad.TensorRef do
-  use Rustler, otp_app: :ex_tinygrad, crate: "ex_tinygrad_ref"
+defmodule NxTinygrad.TensorRef do
+  use Rustler, otp_app: :nx_tinygrad, crate: "nx_tinygrad_ref"
 
   # When your NIF is loaded, it will override this function.
   def add(_a, _b), do: :erlang.nif_error(:nif_not_loaded)

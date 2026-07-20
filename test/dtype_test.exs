@@ -1,7 +1,7 @@
-defmodule ExTinygrad.DtypeTest do
+defmodule NxTinygrad.DtypeTest do
   use ExUnit.Case, async: true
 
-  alias ExTinygrad.Dtype
+  alias NxTinygrad.Dtype
 
   test "maps the v0.1 required types" do
     assert Dtype.to_name!({:f, 32}) == "f32"
@@ -17,7 +17,7 @@ defmodule ExTinygrad.DtypeTest do
   end
 
   test "unsupported Nx type raises a compile error" do
-    assert_raise ExTinygrad.CompileError, fn -> Dtype.to_name!({:c, 64}) end
+    assert_raise NxTinygrad.CompileError, fn -> Dtype.to_name!({:c, 64}) end
   end
 
   test "unknown name returns an error tuple" do

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ex_tinygrad Python worker.
+"""nx_tinygrad Python worker.
 
 Runs as an OS process behind an Erlang Port. Reads framed protocol requests from
 stdin, dispatches them against tinygrad, and writes framed responses to stdout.
@@ -26,11 +26,11 @@ WORKER_VERSION = "0.1.0"
 
 
 def log(msg: str) -> None:
-    print(f"[ex_tinygrad.worker] {msg}", file=sys.stderr, flush=True)
+    print(f"[nx_tinygrad.worker] {msg}", file=sys.stderr, flush=True)
 
 
 def configure_environment() -> dict:
-    spec = os.environ.get("EX_TINYGRAD_DEVICE") or os.environ.get("DEV") or "CPU"
+    spec = os.environ.get("NX_TINYGRAD_DEVICE") or os.environ.get("DEV") or "CPU"
     parsed = device_mod.parse_device(spec)
     device_mod.apply_env(parsed)
     return parsed
@@ -42,7 +42,7 @@ class Handler:
     def __init__(self, parsed_device: dict):
         self.parsed_device = parsed_device
         self.tg_device = parsed_device["tinygrad_device"]
-        self.generation = int(os.environ.get("EX_TINYGRAD_GENERATION", "1"))
+        self.generation = int(os.environ.get("NX_TINYGRAD_GENERATION", "1"))
         self.should_stop = False
         self._device_info = None
 
@@ -95,7 +95,7 @@ class Handler:
             klass, message, details = exc.error_class, exc.message, exc.details
         else:
             klass, message, details = type(exc).__name__, str(exc), {}
-        tb = traceback.format_exc() if os.environ.get("EX_TINYGRAD_DEBUG_TRACEBACK") == "1" else None
+        tb = traceback.format_exc() if os.environ.get("NX_TINYGRAD_DEBUG_TRACEBACK") == "1" else None
         return {"ok": False, "error": {"class": klass, "message": message, "details": details, "python_traceback": tb}}
 
     # -- commands -----------------------------------------------------------
@@ -258,7 +258,7 @@ class Handler:
 def main() -> int:
     parsed = configure_environment()
     log(f"starting: device={parsed['spec']} -> tinygrad {parsed['tinygrad_device']} "
-        f"(generation {os.environ.get('EX_TINYGRAD_GENERATION', '1')})")
+        f"(generation {os.environ.get('NX_TINYGRAD_GENERATION', '1')})")
 
     from protocol import read_packet, write_packet, decode_frame, encode_frame
 

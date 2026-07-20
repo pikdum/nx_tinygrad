@@ -1,8 +1,8 @@
-defmodule ExTinygrad.BackendTest do
+defmodule NxTinygrad.BackendTest do
   @moduledoc "Device-resident tensor backend."
   use ExUnit.Case, async: false
 
-  alias ExTinygrad.Backend
+  alias NxTinygrad.Backend
 
   defp to_device(tensor), do: Nx.backend_transfer(tensor, {Backend, worker: :default})
 
@@ -39,11 +39,11 @@ defmodule ExTinygrad.BackendTest do
   test "eager operations raise instead of falling back" do
     t = Nx.tensor([1.0, 2.0, 3.0]) |> to_device()
 
-    assert_raise ExTinygrad.Error, ~r/eager operations are not supported/, fn ->
+    assert_raise NxTinygrad.Error, ~r/eager operations are not supported/, fn ->
       Nx.add(t, t)
     end
 
-    assert_raise ExTinygrad.Error, ~r/eager operations are not supported/, fn ->
+    assert_raise NxTinygrad.Error, ~r/eager operations are not supported/, fn ->
       Nx.exp(t)
     end
   end
@@ -55,21 +55,21 @@ defmodule ExTinygrad.BackendTest do
 
   test "jit with output: :device returns device tensors" do
     x = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
-    result = ExTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :device).(x)
+    result = NxTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :device).(x)
     assert %Backend{} = result.data
     assert Nx.to_flat_list(Nx.backend_transfer(result)) == [2.0, 4.0, 6.0, 8.0]
   end
 
   test "jit with output: :host returns BinaryBackend tensors" do
     x = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
-    result = ExTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :host).(x)
+    result = NxTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :host).(x)
     assert result.data.__struct__ == Nx.BinaryBackend
     assert Nx.to_flat_list(result) == [2.0, 4.0, 6.0, 8.0]
   end
 
   test "device-resident input is reused as a handle (no re-upload)" do
     x = Nx.tensor([[1.0, 2.0], [3.0, 4.0]]) |> to_device()
-    double = ExTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :device)
+    double = NxTinygrad.jit(fn t -> Nx.multiply(t, 2.0) end, output: :device)
     r = double.(x)
     assert Nx.to_flat_list(Nx.backend_transfer(r)) == [2.0, 4.0, 6.0, 8.0]
   end

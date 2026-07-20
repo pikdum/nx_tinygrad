@@ -1,6 +1,6 @@
-defmodule ExTinygrad.Dtype do
+defmodule NxTinygrad.Dtype do
   @moduledoc """
-  Mapping between Nx numeric types and ex_tinygrad's stable dtype names.
+  Mapping between Nx numeric types and nx_tinygrad's stable dtype names.
 
   The stable names are the wire format shared with the Python worker. Keeping
   the mapping centralized on both sides avoids drift.
@@ -39,7 +39,7 @@ defmodule ExTinygrad.Dtype do
     end
   end
 
-  @doc "Stable wire name for an Nx type, raising `ExTinygrad.CompileError` on failure."
+  @doc "Stable wire name for an Nx type, raising `NxTinygrad.CompileError` on failure."
   @spec to_name!(Nx.Type.t()) :: String.t()
   def to_name!(type) do
     case to_name(type) do
@@ -47,7 +47,7 @@ defmodule ExTinygrad.Dtype do
         name
 
       {:error, reason} ->
-        raise ExTinygrad.CompileError,
+        raise NxTinygrad.CompileError,
           message: reason,
           hint: "supported dtypes: #{Enum.join(@supported_names, ", ")}"
     end
@@ -66,7 +66,7 @@ defmodule ExTinygrad.Dtype do
   def to_nx!(name) do
     case to_nx(name) do
       {:ok, type} -> type
-      {:error, reason} -> raise ExTinygrad.Error, message: reason
+      {:error, reason} -> raise NxTinygrad.Error, message: reason
     end
   end
 
