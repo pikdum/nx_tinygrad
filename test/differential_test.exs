@@ -556,6 +556,16 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(lu_fun).(a), a, atol: 1.0e-3, rtol: 1.0e-3)
   end
 
+  test "svd singular values and eigh eigenvalues match Nx" do
+    sym = Nx.tensor([[4.0, 1.0, 0.5], [1.0, 3.0, 0.2], [0.5, 0.2, 2.0]], type: :f32)
+
+    svd_fun = fn t -> t |> Nx.LinAlg.svd() |> elem(1) end
+    eigh_fun = fn t -> t |> Nx.LinAlg.eigh() |> elem(0) end
+
+    assert_close(NxTinygrad.jit(svd_fun).(sym), svd_fun.(sym), atol: 1.0e-3, rtol: 1.0e-3)
+    assert_close(NxTinygrad.jit(eigh_fun).(sym), eigh_fun.(sym), atol: 1.0e-3, rtol: 1.0e-3)
+  end
+
   test "triangular_solve matches Nx (lower/upper, vector/matrix, transpose)" do
     lo = Nx.tensor([[2.0, 0.0, 0.0], [1.0, 3.0, 0.0], [1.0, 1.0, 4.0]], type: :f32)
     up = Nx.tensor([[2.0, 1.0, 1.0], [0.0, 3.0, 1.0], [0.0, 0.0, 4.0]], type: :f32)

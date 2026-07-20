@@ -657,7 +657,8 @@ def _indexed(node, env):
     for j in range(1, len(a_sizes)):
         lin = lin + idx[:, j] * strides[j]
 
-    src = upd.reshape((rows,) + tuple(b_sizes))
+    # tinygrad scatter requires src and self to share a dtype.
+    src = upd.reshape((rows,) + tuple(b_sizes)).cast(t2.dtype)
     index = lin.reshape((rows,) + (1,) * len(b_sizes)).expand((rows,) + tuple(b_sizes))
 
     if node["op"] == "indexed_add":
@@ -841,7 +842,10 @@ def apply(node, env) -> Tensor:
         result = _COMPARISON[op](_in(node, env, 0), _in(node, env, 1))
     elif op == "select":
         cond = _in(node, env, 0).cast(dtypes.bool)
-        result = cond.where(_in(node, env, 1), _in(node, env, 2))
+        # tinygrad's where requires both branches to share a dtype; cast to the
+        # declared output dtype (Nx may hand us mismatched branch dtypes).
+        out_dt = tinygrad_dtype(node["dtype"])
+        result = cond.where(_in(node, env, 1).cast(out_dt), _in(node, env, 2).cast(out_dt))
     elif op in ("sum", "product", "reduce_max", "reduce_min", "all", "any"):
         result = _reduce(node, env)
     elif op in ("argmax", "argmin"):
