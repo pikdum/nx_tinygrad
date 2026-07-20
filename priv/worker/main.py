@@ -142,7 +142,7 @@ class Handler:
         }, []
 
     def cmd_execute(self, args, blobs):
-        from dtype import numpy_dtype
+        from dtype import numpy_dtype, wire_numpy, wire_tensor
 
         executable = self.exec_registry.get(args["executable_id"])
         output_mode = args.get("output", "device")
@@ -158,7 +158,7 @@ class Handler:
                     .reshape(spec["shape"])
                     .copy()
                 )
-                tensor = self.Tensor(arr, device=self.tg_device)
+                tensor = wire_tensor(arr, spec["dtype"], self.tg_device)
                 if arr.shape == ():
                     tensor = tensor.clone()
                 input_tensors.append(tensor.realize())
@@ -175,7 +175,7 @@ class Handler:
             # JIT output buffer — safe without an extra device clone.
             specs, out_blobs = [], []
             for tensor, ospec in zip(outputs, executable.output_specs):
-                arr = self.np.ascontiguousarray(tensor.numpy(), dtype=numpy_dtype(ospec["dtype"]))
+                arr = self.np.ascontiguousarray(wire_numpy(tensor, ospec["dtype"]), dtype=numpy_dtype(ospec["dtype"]))
                 data = arr.tobytes()
                 self.stats.download_bytes += len(data)
                 out_blobs.append(data)
@@ -195,14 +195,14 @@ class Handler:
         return {"outputs": specs}, []
 
     def cmd_upload(self, args, blobs):
-        from dtype import numpy_dtype
+        from dtype import numpy_dtype, wire_tensor
 
         if not blobs:
             raise ProtocolError("upload requires a tensor blob")
         shape = tuple(args["shape"])
         dtype = args["dtype"]
         arr = self.np.frombuffer(blobs[0], dtype=numpy_dtype(dtype)).reshape(shape).copy()
-        tensor = self.Tensor(arr, device=self.tg_device)
+        tensor = wire_tensor(arr, dtype, self.tg_device)
         if arr.shape == ():
             tensor = tensor.clone()
         tensor = tensor.realize()
@@ -212,10 +212,10 @@ class Handler:
         return {"id": buffer_id, "shape": list(shape), "dtype": dtype}, []
 
     def cmd_download(self, args, _blobs):
-        from dtype import numpy_dtype
+        from dtype import numpy_dtype, wire_numpy
 
         buf = self.registry.get(args["id"])
-        arr = buf.tensor.numpy()
+        arr = wire_numpy(buf.tensor, buf.dtype)
         arr = self.np.ascontiguousarray(arr, dtype=numpy_dtype(buf.dtype))
         data = arr.tobytes()
         self.stats.download_bytes += len(data)

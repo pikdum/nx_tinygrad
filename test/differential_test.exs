@@ -183,6 +183,14 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(fun).(x, y), fun.(x, y))
   end
 
+  test "bf16 arithmetic matches Nx within bf16 precision" do
+    x = Nx.tensor([1.5, -2.25, 3.0, 0.5, -4.0], type: :bf16)
+    y = Nx.tensor([2.0, 4.0, -1.0, 8.0, 0.25], type: :bf16)
+    fun = fn a, b -> {Nx.add(a, b), Nx.multiply(a, b), Nx.subtract(a, b), Nx.tanh(a)} end
+
+    assert_close(NxTinygrad.jit(fun).(x, y), fun.(x, y), atol: 5.0e-2, rtol: 5.0e-2)
+  end
+
   test "extended transcendental and sign unary ops match on valid domains" do
     broad = Nx.tensor([-2.0, -0.5, 0.0, 0.5, 2.0], type: :f32)
     unit = Nx.tensor([-0.9, -0.5, 0.0, 0.5, 0.9], type: :f32)

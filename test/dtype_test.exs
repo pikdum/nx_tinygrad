@@ -16,9 +16,13 @@ defmodule NxTinygrad.DtypeTest do
     end
   end
 
+  test "bf16 maps to its wire name" do
+    assert Dtype.to_name!({:bf, 16}) == "bf16"
+    assert Dtype.to_nx!("bf16") == {:bf, 16}
+  end
+
   test "unsupported Nx type raises a compile error" do
     assert_raise NxTinygrad.CompileError, fn -> Dtype.to_name!({:c, 64}) end
-    assert_raise NxTinygrad.CompileError, fn -> Dtype.to_name!({:bf, 16}) end
   end
 
   test "unknown name returns an error tuple" do

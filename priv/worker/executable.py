@@ -17,7 +17,7 @@ import numpy as np
 from tinygrad import Tensor, TinyJit, Device
 
 import operations
-from dtype import numpy_dtype, tinygrad_dtype
+from dtype import numpy_dtype, tinygrad_dtype, wire_numpy, wire_tensor
 from errors import CompileError
 
 
@@ -77,7 +77,7 @@ def _make_constant(const: dict, blobs: list[bytes], device: str) -> Tensor:
     dtype = const["dtype"]
     if "data_index" in const:
         arr = np.frombuffer(blobs[const["data_index"]], dtype=numpy_dtype(dtype)).reshape(shape).copy()
-        return Tensor(arr, device=device).realize()
+        return wire_tensor(arr, dtype, device).realize()
 
     value = _decode_value(const["value"])
     tg_dtype = tinygrad_dtype(dtype)
@@ -170,7 +170,7 @@ class Executable:
         arr = (np.arange(size, dtype=numpy_dtype(spec["dtype"])) + seed).reshape(shape)
         # clone() forces scalars and other constant-foldable inputs to own real
         # buffers, as required by TinyJit input replacement.
-        return Tensor(arr, device=self.device).clone().realize()
+        return wire_tensor(arr, spec["dtype"], self.device).clone().realize()
 
     def _capture(self, validate: bool) -> None:
         # A graph with no inputs is a pure constant computation, and graphs that
@@ -186,7 +186,10 @@ class Executable:
         if validate:
             validation_inputs = [self._dummy(spec, 3) for spec in self.input_specs]
             expected = self._graph_fn(*validation_inputs)
-            reference = [np.ascontiguousarray(out.numpy()).copy() for out in expected]
+            reference = [
+                np.ascontiguousarray(wire_numpy(out, spec["dtype"])).copy()
+                for out, spec in zip(expected, self.output_specs)
+            ]
             outs = self._jit(*validation_inputs)
 
         if len(outs) != len(self.output_specs):
@@ -202,7 +205,7 @@ class Executable:
 
     def _validate_replay(self, reference: list[np.ndarray], replayed: list[Tensor]) -> None:
         for index, (expected, tensor, spec) in enumerate(zip(reference, replayed, self.output_specs)):
-            actual = np.ascontiguousarray(tensor.numpy())
+            actual = np.ascontiguousarray(wire_numpy(tensor, spec["dtype"]))
             expected_dtype = numpy_dtype(spec["dtype"])
             if actual.dtype != expected_dtype:
                 raise CompileError(
