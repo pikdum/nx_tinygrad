@@ -10,6 +10,8 @@ support, so operands are not explicitly broadcast here.
 """
 from __future__ import annotations
 
+import math
+
 from tinygrad import Tensor, dtypes
 
 from dtype import tinygrad_dtype
@@ -47,6 +49,61 @@ def _abs(t: Tensor) -> Tensor:
     return (t == 0).where(0.0, t.abs())
 
 
+_BIT_WIDTH = {"u8": 8, "s8": 8, "u16": 16, "s16": 16, "u32": 32, "s32": 32, "u64": 64, "s64": 64}
+
+
+def _erf_inv(t: Tensor) -> Tensor:
+    # Inverse error function via Mike Giles' single-precision rational
+    # approximation (accurate to ~1e-6, matching Nx's own implementation).
+    w = -((1.0 - t) * (1.0 + t)).log()
+    lt = w < 5.0
+
+    w1 = w - 2.5
+    p1 = 2.81022636e-08
+    for c in (3.43273939e-07, -3.5233877e-06, -4.39150654e-06, 0.00021858087,
+              -0.00125372503, -0.00417768164, 0.246640727, 1.50140941):
+        p1 = c + p1 * w1
+
+    w2 = w.sqrt() - 3.0
+    p2 = -0.000200214257
+    for c in (0.000100950558, 0.00134934322, -0.00367342844, 0.00573950773,
+              -0.0076224613, 0.00943887047, 1.00167406, 2.83297682):
+        p2 = c + p2 * w2
+
+    return lt.where(p1, p2) * t
+
+
+def _bit_reduce(node, env):
+    # count_leading_zeros / population_count over the operand's fixed bit width.
+    # Uses arithmetic shifts, which give the correct result for both signed
+    # (negative -> all-ones after smearing) and unsigned patterns.
+    t = _in(node, env)
+    width = _BIT_WIDTH[node["dtype"]]
+
+    if node["op"] == "count_leading_zeros":
+        smeared = t
+        shift = 1
+        while shift < width:
+            smeared = smeared | (smeared >> shift)
+            shift *= 2
+        highest = smeared
+    else:
+        highest = t
+
+    total = highest & 1
+    for i in range(1, width):
+        total = total + ((highest >> i) & 1)
+
+    return width - total if node["op"] == "count_leading_zeros" else total
+
+
+def _cbrt(t: Tensor) -> Tensor:
+    # tinygrad has no cbrt, and pow of a negative base is nan. Take the root of
+    # the magnitude and restore the sign so cbrt(-8) == -2 (matches Nx).
+    r = t.abs() ** (1.0 / 3.0)
+    return (t < 0).where(-r, r)
+
+
 _UNARY = {
     "negate": lambda t: -t,
     "abs": _abs,
@@ -60,11 +117,53 @@ _UNARY = {
     "sigmoid": lambda t: t.sigmoid(),
     "sin": lambda t: t.sin(),
     "cos": lambda t: t.cos(),
+    "tan": lambda t: t.tan(),
+    "asin": lambda t: t.asin(),
+    "acos": lambda t: t.acos(),
+    "atan": lambda t: t.atan(),
+    "sinh": lambda t: t.sinh(),
+    "cosh": lambda t: t.cosh(),
+    "asinh": lambda t: t.asinh(),
+    "acosh": lambda t: t.acosh(),
+    "atanh": lambda t: t.atanh(),
+    "erf": lambda t: t.erf(),
+    "erfc": lambda t: 1 - t.erf(),
+    "erf_inv": _erf_inv,
+    # conjugate of a real tensor is the identity (complex is not supported).
+    "conjugate": lambda t: t,
+    "cbrt": _cbrt,
+    "sign": lambda t: t.sign(),
+    # Nx rounds half away from zero; tinygrad's round is half-to-even. Compose.
+    "round": lambda t: t.sign() * (t.abs() + 0.5).floor(),
+    "is_nan": lambda t: t.isnan(),
+    "is_infinity": lambda t: t.isinf(),
+    "bitwise_not": lambda t: t.bitwise_not(),
     "floor": lambda t: t.floor(),
     "ceil": lambda t: t.ceil(),
 }
 
 # -- elementwise binary -------------------------------------------------------
+
+def _remainder(a: Tensor, b: Tensor) -> Tensor:
+    # Nx.remainder takes the sign of the dividend (truncated division), while
+    # tinygrad's % follows Python floor semantics. Compose to match Nx.
+    return a - b * (a / b).trunc()
+
+
+def _quotient(a: Tensor, b: Tensor) -> Tensor:
+    # Integer division truncating toward zero (Nx semantics; the final cast
+    # restores the integer output dtype).
+    return (a / b).trunc()
+
+
+def _atan2(y: Tensor, x: Tensor) -> Tensor:
+    # tinygrad has no atan2; reconstruct it from atan with quadrant correction.
+    base = (y / x).atan()
+    adj = (x < 0).where((y >= 0).where(math.pi, -math.pi), 0.0)
+    r = base + adj
+    on_axis = (y > 0).where(math.pi / 2, (y < 0).where(-math.pi / 2, 0.0))
+    return (x == 0).where(on_axis, r)
+
 
 _BINARY = {
     "add": lambda a, b: a + b,
@@ -74,6 +173,18 @@ _BINARY = {
     "pow": lambda a, b: a**b,
     "max": lambda a, b: a.maximum(b),
     "min": lambda a, b: a.minimum(b),
+    "remainder": _remainder,
+    "quotient": _quotient,
+    "atan2": _atan2,
+    "bitwise_and": lambda a, b: a & b,
+    "bitwise_or": lambda a, b: a | b,
+    "bitwise_xor": lambda a, b: a ^ b,
+    "left_shift": lambda a, b: a << b,
+    "right_shift": lambda a, b: a >> b,
+    # Nx logical ops treat any nonzero as true and yield u8 0/1 (final cast).
+    "logical_and": lambda a, b: (a != 0) & (b != 0),
+    "logical_or": lambda a, b: (a != 0) | (b != 0),
+    "logical_xor": lambda a, b: (a != 0) ^ (b != 0),
 }
 
 # -- comparisons (result cast to node dtype, i.e. u8) -------------------------
@@ -99,6 +210,8 @@ def _reduce(node, env):
     axis = tuple(axes)
     if op == "sum":
         return t.sum(axis=axis, keepdim=keep)
+    if op == "product":
+        return t.prod(axis=axis, keepdim=keep)
     if op == "reduce_max":
         return t.max(axis=axis, keepdim=keep)
     if op == "reduce_min":
@@ -108,6 +221,27 @@ def _reduce(node, env):
         reduced = mask.min(axis=axis, keepdim=keep) if op == "all" else mask.max(axis=axis, keepdim=keep)
         return reduced
     raise UnsupportedOperation(f"unsupported reduction: {op}")
+
+
+def _argreduce(node, env):
+    t = _in(node, env)
+    op = node["op"]
+    axis = node["attrs"]["axis"]  # int, or None for flattened argreduce
+    keep = node["attrs"]["keep_axis"]
+    tie = node["attrs"]["tie_break"]  # "low" (first index) or "high" (last)
+
+    def reduce(x, ax=None, keepdim=False):
+        return x.argmax(ax, keepdim) if op == "argmax" else x.argmin(ax, keepdim)
+
+    # tinygrad breaks ties toward the first index, matching Nx's default :low.
+    if tie == "low":
+        return reduce(t) if axis is None else reduce(t, axis, keep)
+
+    # :high wants the last winning index: flip the reduction axis, reduce, remap.
+    if axis is None:
+        flat = t.reshape((t.numel(),))
+        return flat.shape[0] - 1 - reduce(flat.flip(0))
+    return t.shape[axis] - 1 - reduce(t.flip(axis), axis, keep)
 
 
 def _broadcast(node, env):
@@ -121,6 +255,34 @@ def _broadcast(node, env):
     return t.reshape(tuple(inter)).expand(tuple(out_shape))
 
 
+_SPECIAL_NUMBERS = {"Infinity": math.inf, "-Infinity": -math.inf, "NaN": math.nan}
+
+
+def _num(v):
+    return _SPECIAL_NUMBERS[v] if isinstance(v, str) else v
+
+
+def _pad(node, env):
+    t = _in(node, env)
+    config = node["attrs"]["config"]  # [[low, high, interior], ...]
+    if any(interior != 0 for (_lo, _hi, interior) in config):
+        raise UnsupportedOperation("interior padding is not supported", details={"config": config})
+    if any(lo < 0 or hi < 0 for (lo, hi, _i) in config):
+        raise UnsupportedOperation("negative (cropping) padding is not supported", details={"config": config})
+    padding = tuple((lo, hi) for (lo, hi, _i) in config)
+    return t.pad(padding, value=float(_num(node["attrs"]["value"])))
+
+
+def _sort(node, env):
+    t = _in(node, env)
+    return t.sort(node["attrs"]["axis"], node["attrs"]["descending"])[0]
+
+
+def _argsort(node, env):
+    t = _in(node, env)
+    return t.argsort(node["attrs"]["axis"], node["attrs"]["descending"])
+
+
 def _slice(node, env):
     t = _in(node, env)
     starts = node["attrs"]["starts"]
@@ -130,10 +292,201 @@ def _slice(node, env):
     return t[idx]
 
 
+def _clip(node, env):
+    return _in(node, env, 0).maximum(_in(node, env, 1)).minimum(_in(node, env, 2))
+
+
+def _stack(node, env):
+    # Insert the new axis into each operand, then concatenate along it.
+    axis = node["attrs"]["axis"]
+    parts = []
+    for i in node["inputs"]:
+        x = env[i]
+        shp = list(x.shape)
+        shp.insert(axis, 1)
+        parts.append(x.reshape(tuple(shp)))
+    return parts[0].cat(*parts[1:], dim=axis) if len(parts) > 1 else parts[0]
+
+
+def _eye(node):
+    shape = node["shape"]
+    r, c = shape[-2], shape[-1]
+    diag = Tensor.arange(r).reshape((r, 1)) == Tensor.arange(c).reshape((1, c))
+    return diag.reshape((1,) * (len(shape) - 2) + (r, c)).expand(tuple(shape))
+
+
+_WINDOW_IDENTITY = {
+    "window_sum": 0.0,
+    "window_max": -math.inf,
+    "window_min": math.inf,
+    "window_product": 1.0,
+}
+
+
+def _window(node, env):
+    # Nx windowed reduction: pool over every axis (size-1 windows on non-pooled
+    # axes), then reduce the trailing window axes _pool exposes. Padding uses the
+    # reduction's identity so it never changes the result.
+    t = _in(node, env)
+    op = node["op"]
+    rank = len(t.shape)
+    padding = node["attrs"]["padding"]
+    if any(lo or hi for (lo, hi) in padding):
+        t = t.pad(tuple((lo, hi) for (lo, hi) in padding), value=float(_WINDOW_IDENTITY[op]))
+
+    pooled = t._pool(
+        tuple(node["attrs"]["window"]),
+        stride=tuple(node["attrs"]["strides"]),
+        dilation=tuple(node["attrs"]["window_dilations"]),
+    )
+    axes = tuple(range(rank, 2 * rank))
+    if op == "window_sum":
+        return pooled.sum(axis=axes)
+    if op == "window_max":
+        return pooled.max(axis=axes)
+    if op == "window_min":
+        return pooled.min(axis=axes)
+    return pooled.prod(axis=axes)
+
+
+def _iota(node):
+    # Index counter along `axis` (or over the flattened tensor when axis is None).
+    shape = node["shape"]
+    axis = node["attrs"]["axis"]
+    if axis is None:
+        return Tensor.arange(math.prod(shape)).reshape(tuple(shape))
+    view = [1] * len(shape)
+    view[axis] = shape[axis]
+    return Tensor.arange(shape[axis]).reshape(tuple(view)).expand(tuple(shape))
+
+
+def _gather(node, env):
+    # Nx coordinate gather: idx[..., j] indexes t along axes[j]. Output shape is
+    # idx.shape[:-1] ++ (t's non-indexed axes). We move the indexed axes to the
+    # front, collapse them, turn each coordinate into one linear index, then
+    # index_select along that combined axis via tinygrad fancy indexing.
+    t = _in(node, env, 0)
+    idx = _in(node, env, 1)
+    axes = list(node["attrs"]["axes"])
+    rank = len(t.shape)
+    non_axes = [d for d in range(rank) if d not in axes]
+
+    a_sizes = [t.shape[a] for a in axes]
+    b_sizes = [t.shape[d] for d in non_axes]
+    k = idx.shape[-1]
+    batch = tuple(idx.shape[:-1])
+    rows = math.prod(batch) if batch else 1
+
+    combined = math.prod(a_sizes) if a_sizes else 1
+    t3 = t.permute(tuple(axes) + tuple(non_axes)).reshape((combined,) + tuple(b_sizes))
+
+    # row-major strides over the indexed axes
+    strides = [0] * k
+    acc = 1
+    for j in range(k - 1, -1, -1):
+        strides[j] = acc
+        acc *= a_sizes[j]
+
+    flat_idx = idx.reshape((rows, k)).cast(dtypes.int32)
+    lin = flat_idx[:, 0] * strides[0]
+    for j in range(1, k):
+        lin = lin + flat_idx[:, j] * strides[j]
+
+    return t3[lin].reshape(batch + tuple(b_sizes))
+
+
+def _put_slice(node, env):
+    # Overwrite target[starts : starts+slice.shape] with the slice, composed from
+    # pad + select. Nx clamps starts so the slice fits fully inside the target.
+    target = _in(node, env, 0)
+    sl = _in(node, env, 1)
+    starts = node["attrs"]["starts"]
+    pad_config = []
+    for dim, start in enumerate(starts):
+        start = max(0, min(int(start), target.shape[dim] - sl.shape[dim]))
+        pad_config.append((start, target.shape[dim] - sl.shape[dim] - start))
+    padded = sl.pad(tuple(pad_config))
+    mask = (sl * 0 + 1).pad(tuple(pad_config))
+    return (mask != 0).where(padded, target)
+
+
+def _indexed(node, env):
+    # Nx indexed_add/indexed_put: idx is {K, len(axes)} coordinates, updates is
+    # {K} ++ (non-indexed axes). Collapse the indexed axes into one, scatter along
+    # it, then restore the original axis order.
+    t = _in(node, env, 0)
+    idx = _in(node, env, 1).cast(dtypes.int32)
+    upd = _in(node, env, 2)
+    axes = list(node["attrs"]["axes"])
+    rank = len(t.shape)
+    non_axes = [d for d in range(rank) if d not in axes]
+
+    a_sizes = [t.shape[a] for a in axes]
+    b_sizes = [t.shape[d] for d in non_axes]
+    combined = math.prod(a_sizes) if a_sizes else 1
+    rows = idx.shape[0]
+
+    perm = tuple(axes) + tuple(non_axes)
+    t2 = t.permute(perm).reshape((combined,) + tuple(b_sizes))
+
+    strides = [0] * len(a_sizes)
+    acc = 1
+    for j in range(len(a_sizes) - 1, -1, -1):
+        strides[j] = acc
+        acc *= a_sizes[j]
+    lin = idx[:, 0] * strides[0]
+    for j in range(1, len(a_sizes)):
+        lin = lin + idx[:, j] * strides[j]
+
+    src = upd.reshape((rows,) + tuple(b_sizes))
+    index = lin.reshape((rows,) + (1,) * len(b_sizes)).expand((rows,) + tuple(b_sizes))
+
+    if node["op"] == "indexed_add":
+        out = t2.scatter_reduce(0, index, src, reduce="sum", include_self=True)
+    else:
+        out = t2.scatter(0, index, src)
+
+    out = out.reshape(tuple(a_sizes) + tuple(b_sizes))
+    inverse = [0] * rank
+    for new_pos, orig_axis in enumerate(perm):
+        inverse[orig_axis] = new_pos
+    return out.permute(tuple(inverse))
+
+
 def _concatenate(node, env):
     tensors = [env[i] for i in node["inputs"]]
     axis = node["attrs"]["axis"]
     return tensors[0].cat(*tensors[1:], dim=axis) if len(tensors) > 1 else tensors[0]
+
+
+def _conv(node, env):
+    # Nx.conv with default (identity) layout maps onto tinygrad conv2d, which is
+    # general over spatial rank. We pre-pad the spatial dims ourselves so Nx's
+    # asymmetric per-edge padding is honored, then convolve with padding=0.
+    x = _in(node, env, 0)
+    w = _in(node, env, 1)
+    a = node["attrs"]
+    rank = len(x.shape)
+    ident = list(range(rank))
+
+    if a["input_permutation"] != ident or a["kernel_permutation"] != ident or a["output_permutation"] != ident:
+        raise UnsupportedOperation("conv with non-default tensor permutations is not supported")
+    if a["batch_group_size"] != 1:
+        raise UnsupportedOperation("conv batch_group_size != 1 is not supported")
+    if any(d != 1 for d in a["input_dilation"]):
+        raise UnsupportedOperation("conv input dilation (transposed conv) is not supported")
+
+    pad_config = [(0, 0), (0, 0)] + [(lo, hi) for (lo, hi) in a["padding"]]
+    if any(lo or hi for (lo, hi) in pad_config):
+        x = x.pad(tuple(pad_config))
+
+    return x.conv2d(
+        w,
+        groups=a["feature_group_size"],
+        stride=tuple(a["strides"]),
+        dilation=tuple(a["kernel_dilation"]),
+        padding=0,
+    )
 
 
 def _dot(node, env):
@@ -199,8 +552,14 @@ def apply(node, env) -> Tensor:
     elif op == "select":
         cond = _in(node, env, 0).cast(dtypes.bool)
         result = cond.where(_in(node, env, 1), _in(node, env, 2))
-    elif op in ("sum", "reduce_max", "reduce_min", "all", "any"):
+    elif op in ("sum", "product", "reduce_max", "reduce_min", "all", "any"):
         result = _reduce(node, env)
+    elif op in ("argmax", "argmin"):
+        result = _argreduce(node, env)
+    elif op in ("window_sum", "window_max", "window_min", "window_product"):
+        result = _window(node, env)
+    elif op in ("count_leading_zeros", "population_count"):
+        result = _bit_reduce(node, env)
     elif op == "reshape":
         result = _in(node, env).reshape(tuple(node["attrs"]["shape"]))
     elif op == "squeeze":
@@ -209,14 +568,38 @@ def apply(node, env) -> Tensor:
         result = _broadcast(node, env)
     elif op == "transpose":
         result = _in(node, env).permute(tuple(node["attrs"]["axes"]))
+    elif op == "reverse":
+        result = _in(node, env).flip(tuple(node["attrs"]["axes"]))
     elif op == "concatenate":
         result = _concatenate(node, env)
     elif op == "slice":
         result = _slice(node, env)
+    elif op == "pad":
+        result = _pad(node, env)
+    elif op == "sort":
+        result = _sort(node, env)
+    elif op == "argsort":
+        result = _argsort(node, env)
+    elif op == "gather":
+        result = _gather(node, env)
+    elif op == "iota":
+        result = _iota(node)
+    elif op == "put_slice":
+        result = _put_slice(node, env)
+    elif op in ("indexed_add", "indexed_put"):
+        result = _indexed(node, env)
+    elif op == "clip":
+        result = _clip(node, env)
+    elif op == "stack":
+        result = _stack(node, env)
+    elif op == "eye":
+        result = _eye(node)
     elif op == "as_type":
         result = _in(node, env)
     elif op == "dot":
         result = _dot(node, env)
+    elif op == "conv":
+        result = _conv(node, env)
     else:
         raise UnsupportedOperation(f"unsupported Nx operation: {op}", details={"op": op})
 
@@ -227,6 +610,10 @@ SUPPORTED_OPS = (
     set(_UNARY)
     | set(_BINARY)
     | set(_COMPARISON)
-    | {"select", "sum", "reduce_max", "reduce_min", "all", "any"}
-    | {"reshape", "squeeze", "broadcast", "transpose", "concatenate", "slice", "as_type", "dot"}
+    | {"select", "sum", "product", "reduce_max", "reduce_min", "all", "any", "argmax", "argmin"}
+    | {"window_sum", "window_max", "window_min", "window_product"}
+    | {"count_leading_zeros", "population_count"}
+    | {"reshape", "squeeze", "broadcast", "transpose", "reverse", "concatenate", "slice", "as_type", "dot", "conv"}
+    | {"pad", "sort", "argsort", "gather", "iota", "clip", "stack", "eye"}
+    | {"put_slice", "indexed_add", "indexed_put"}
 )

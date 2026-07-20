@@ -3,6 +3,60 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+Operation-coverage march toward a general-purpose, swap-in `Nx.Backend`. Each new
+primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`.
+
+### Added
+
+- Elementwise unary ops: `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `asinh`,
+  `acosh`, `atanh`, `erf`, `cbrt`, `sign`, `is_nan`, `is_infinity`, `bitwise_not`.
+  Most map directly to tinygrad primitives; `cbrt` is composed (magnitude root +
+  sign) since tinygrad has none.
+- Elementwise binary ops: `bitwise_and`, `bitwise_or`, `bitwise_xor`,
+  `left_shift`, `right_shift`, `logical_and`, `logical_or`, `logical_xor`,
+  `remainder`, `quotient`, `atan2` (`remainder`/`quotient` composed to Nx's
+  truncated-division semantics; `atan2` reconstructed from `atan` with quadrant
+  correction).
+- Reductions: `product`, `argmax`, `argmin` (`argmax`/`argmin` honor `axis`,
+  `keep_axis`, and both `:low`/`:high` tie-breaks), and windowed reductions
+  `window_sum`/`window_max`/`window_min`/`window_product` (strides, per-edge
+  padding with each reduction's identity, and window dilation, via tinygrad
+  `_pool`).
+- Shape / indexing: `reverse`, `pad` (edge padding with finite or ±infinity
+  fill; interior/negative padding raise for now), `sort`, `argsort`, `iota`,
+  `gather` (Nx coordinate-gather semantics), `clip`, `stack`, `eye`. `take`,
+  `take_along_axis`, and `tile` come from existing primitives (block path /
+  reshape+broadcast).
+- Elementwise: `round` (composed to Nx's half-away-from-zero rounding, vs
+  tinygrad's half-to-even), `erfc`.
+- Elementwise: `erf_inv` (Giles rational approximation), `count_leading_zeros`,
+  `population_count` (bit-width-aware), and `conjugate` (identity on real inputs).
+- **Multi-output `:elem` + tuple blocks** — projecting an element out of a
+  tuple-returning block/op. Unlocks `top_k` and any tuple-valued composite.
+- **`cond`** — pure clauses lowered to a right-folded chain of predicated
+  `select`s.
+- Non-iterative `Nx.LinAlg` composites that decompose to the supported op set
+  (e.g. `determinant`) now lower.
+- New-op parity is verified on the real AMD RX 7900 XT in
+  `test/gpu/amd_ops_test.exs` (conv, pooling, indexing, scatter, sort,
+  cumulative, `top_k`, `cond`, extended elementwise).
+- `conv` — maps Nx's default-layout convolution onto tinygrad `conv2d` (general
+  over spatial rank), honoring strides, per-edge (asymmetric) padding, kernel
+  dilation, and feature groups. Input dilation (transposed conv), non-identity
+  tensor permutations, and batch grouping raise `NxTinygrad.CompileError`.
+- Scatter: `put_slice` (composed from `pad` + `select`; compile-time start
+  offsets), `indexed_add`, `indexed_put` (coordinate scatter over `:axes` via
+  tinygrad `scatter_reduce`/`scatter`; duplicate indices accumulate for
+  `indexed_add`).
+- **Generic `:block` lowering** — optional Nx ops that carry a pre-traced pure
+  default expression (e.g. `cumulative_sum`, `cumulative_product`,
+  `cumulative_max`, `cumulative_min`) are lowered by binding their inputs to the
+  default expression and lowering that, composing them from existing primitives.
+  Blocks without a pure default raise `NxTinygrad.CompileError`; the impure
+  callback is never executed.
+
 ## [0.1.0] - 2026-07-19
 
 First release: an `Nx.Defn` compiler and tensor backend that runs whole Nx
