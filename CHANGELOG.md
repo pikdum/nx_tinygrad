@@ -21,6 +21,10 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 - **`cholesky`** — iterative linalg via the `while` path.
 - **`bf16` dtype** — rides a uint16 transport carrier, bitcast to tinygrad
   bfloat16 in the worker (HF bfloat16 checkpoints load without host conversion).
+- **Complex numbers (`c64`/`c128`) + `fft`/`ifft`** — complex tensors are held
+  as paired reals (`S+[2]`); covers complex arithmetic, `conjugate`, `real`,
+  `imag`, `abs`, `exp`, shape ops, `dot`, and `fft`/`ifft` (DFT matmul).
+- **`triangular_solve`** — unrolled forward/back substitution.
 - **Dynamic slice**: `slice` with runtime (tensor) start indices.
 - Elementwise: `erf_inv`, `count_leading_zeros`, `population_count`,
   `conjugate` (real), `bitcast`.

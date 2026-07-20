@@ -75,4 +75,15 @@ defmodule NxTinygrad.GPU.AmdOpsTest do
     x = Nx.tensor([3.0, 1.0, 4.0, 1.5, 5.0, 9.0], type: :f32)
     assert_close(amd(&cond_and_topk/1).(x), cond_and_topk(x), atol: 1.0e-4, rtol: 1.0e-4)
   end
+
+  test "complex arithmetic and fft parity on GPU" do
+    r = Nx.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], type: :f32)
+
+    fun = fn x ->
+      f = Nx.fft(x)
+      {f, Nx.abs(f), Nx.real(Nx.ifft(f)), Nx.conjugate(f)}
+    end
+
+    assert_close(amd(fun).(r), fun.(r), atol: 1.0e-3, rtol: 1.0e-3)
+  end
 end

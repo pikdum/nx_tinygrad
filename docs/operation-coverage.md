@@ -89,12 +89,12 @@ permutations, and `batch_group_size` > 1.
 
 ## dtypes
 
-Wire names map to Nx types: `f16`, `f32`, `f64`, `bf16`, `s8`, `s16`, `s32`,
-`s64`, `u8`, `u16`, `u32`, `u64`. `bf16` rides a uint16 transport carrier and is
-bitcast to tinygrad bfloat16 in the worker. `f64` is functional but not
-performance-optimized on the tested AMD device. Not supported: complex, packed,
-or quantized types. Nx determines output types; tinygrad results are cast to
-satisfy the serialized output spec.
+Wire names map to Nx types: `f16`, `f32`, `f64`, `bf16`, `c64`, `c128`, `s8`,
+`s16`, `s32`, `s64`, `u8`, `u16`, `u32`, `u64`. `bf16` rides a uint16 transport
+carrier (bitcast to tinygrad bfloat16); `c64`/`c128` are carried as paired reals
+(see Complex numbers below). `f64` is functional but not performance-optimized on
+the tested AMD device. Not supported: packed or quantized types. Nx determines
+output types; tinygrad results are cast to satisfy the serialized output spec.
 
 ## Autograd
 
@@ -102,14 +102,18 @@ satisfy the serialized output spec.
 gradient into forward operations before the compiler runs, so the compiler only
 needs the forward op set above (which covers the linear/MLP gradient graphs).
 
+## Complex numbers
+
+tinygrad has no complex dtype, so a complex tensor of logical shape `S` is held
+internally as a real float tensor of shape `S + [2]` (last axis `[real, imag]`).
+Supported: `c64`/`c128` dtypes, complex `add`/`subtract`/`multiply`/`divide`/
+`negate`, `conjugate`, `real`, `imag`, `abs`, `exp`, `as_type`, the shape ops,
+`sum`, `dot`, `select`, and `fft`/`ifft` (a real cos/sin DFT matmul).
+
 ## Not yet supported
 
 These raise a detailed compile error, grouped by the underlying reason:
 
-- **Complex numbers** — tinygrad has no complex dtype, so `fft`, `ifft`, and
-  `conjugate`-to-complex are unsupported (`real`/`imag` work on real inputs).
-  This is a fundamental tinygrad limitation; supporting it would mean emulating
-  complex as pairs of reals across every op.
 - **`reduce` / `window_reduce` with a custom accumulator function** — arbitrary
   user reductions have no general tinygrad mapping (standard associative
   reductions are already covered by `sum`/`product`/`reduce_max`/`reduce_min`
