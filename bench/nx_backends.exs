@@ -29,7 +29,7 @@ gpu =
     :amd
   else
     _ ->
-      IO.puts("GPU: not available — skipping GPU rows")
+      IO.puts("GPU: not available - skipping GPU rows")
       nil
   end
 
@@ -115,8 +115,8 @@ run = fn title, fun, host_args ->
   jobs =
     %{}
     |> then(&if(bin_ok?, do: Map.put(&1, "nx (binary, cpu)", fn -> apply(fun, host_args) end), else: &1))
-    |> Map.put("nx→tinygrad (cpu)", tg.(f_cpu, cpu_args, cpu))
-    |> then(&if(gpu, do: Map.put(&1, "nx→tinygrad (gpu)", tg.(f_gpu, gpu_args, gpu)), else: &1))
+    |> Map.put("nx->tinygrad (cpu)", tg.(f_cpu, cpu_args, cpu))
+    |> then(&if(gpu, do: Map.put(&1, "nx->tinygrad (gpu)", tg.(f_gpu, gpu_args, gpu)), else: &1))
 
   Benchee.run(jobs,
     time: 2,
@@ -131,9 +131,9 @@ run = fn title, fun, host_args ->
 end
 
 # ------------------------------------------------------------------- runs ----
-run.("matmul 64×64 (small — bridge-bound)", fn a, b -> Nx.dot(a, b) end, [mm_a, mm_b])
-run.("elementwise fusion, 512×512 (10 ops → 1 kernel)", &W.elementwise/1, [ew_x])
-run.("elementwise fusion, 4096×4096 (10 ops → 1 kernel)", &W.elementwise/1, [ew_big])
-run.("MLP inference, batch 64 (128→128→32)", &W.predict/2, [params, mx])
+run.("matmul 64x64 (small - bridge-bound)", fn a, b -> Nx.dot(a, b) end, [mm_a, mm_b])
+run.("elementwise fusion, 512x512 (10 ops -> 1 kernel)", &W.elementwise/1, [ew_x])
+run.("elementwise fusion, 4096x4096 (10 ops -> 1 kernel)", &W.elementwise/1, [ew_big])
+run.("MLP inference, batch 64 (128->128->32)", &W.predict/2, [params, mx])
 run.("MLP value_and_grad, batch 64 (training step)", &W.grad/3, [params, mx, my])
-run.("matmul 1024×1024 (compute-heavy — GPU wins)", fn a, b -> Nx.dot(a, b) end, [big_a, big_b])
+run.("matmul 1024x1024 (compute-heavy - GPU wins)", fn a, b -> Nx.dot(a, b) end, [big_a, big_b])
