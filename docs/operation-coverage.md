@@ -64,8 +64,9 @@ tie-breaks); windowed `window_sum`, `window_max`, `window_min`,
 Optional Nx ops that carry a pre-traced *pure* default expression are lowered by
 binding their inputs to that expression and lowering it into primitives — the
 impure callback is never run. This covers `cumulative_sum/product/max/min`,
-`top_k`, `Nx.LinAlg.determinant`, and `Nx.LinAlg.cholesky` (the latter iterates
-through the `while` path). Tuple-valued sources are projected with `elem`.
+`top_k`, `Nx.LinAlg.determinant`, `Nx.LinAlg.cholesky` (iterates through the
+`while` path), and `triangular_solve` (unrolled substitution). Tuple-valued
+sources are projected with `elem`.
 
 `cond` lowers to a chain of predicated `select`s (pure branches). `while` lowers
 to a multi-output node whose condition and body are self-contained sub-graphs;
@@ -113,6 +114,6 @@ These raise a detailed compile error, grouped by the underlying reason:
   user reductions have no general tinygrad mapping (standard associative
   reductions are already covered by `sum`/`product`/`reduce_max`/`reduce_min`
   and the `window_*` ops).
-- **`qr`, `lu`, `svd`, `triangular_solve`** — niche classical-ML linalg with
-  complex internal decompositions (`cholesky` works via `while`).
+- **`qr`, `lu`, `svd`** — niche classical-ML linalg with complex internal
+  decompositions (`cholesky` and `triangular_solve` work).
 - `conv` with `batch_group_size` > 1.
