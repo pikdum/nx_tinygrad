@@ -222,6 +222,21 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, Atom.to_string(op), [aid], attrs)
   end
 
+  defp lower_new(%T{data: %Expr{op: op, args: [a, source, init, window, opts]}} = t, state)
+       when op in [:window_scatter_max, :window_scatter_min] do
+    {ids, state} = lower_children([a, source], state)
+    init_val = scalar_constant!(init, op)
+
+    attrs = %{
+      "init" => encode_number(init_val),
+      "window" => Tuple.to_list(window),
+      "strides" => opts[:strides],
+      "padding" => Enum.map(opts[:padding], fn {lo, hi} -> [lo, hi] end)
+    }
+
+    add_node(state, t, Atom.to_string(op), ids, attrs)
+  end
+
   defp lower_new(%T{data: %Expr{op: :reshape, args: [a]}} = t, state) do
     {[aid], state} = lower_children([a], state)
     add_node(state, t, "reshape", [aid], %{"shape" => shape_of(t)})

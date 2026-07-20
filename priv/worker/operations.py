@@ -359,6 +359,68 @@ def _window(node, env):
     return pooled.prod(axis=axes)
 
 
+def _window_scatter(node, env):
+    # Select-and-scatter (max-pool / min-pool backward): for each window of the
+    # operand, scatter the corresponding `source` value onto the window's extreme
+    # element, accumulating across overlapping windows. Nx breaks ties toward the
+    # last (highest-index) extreme within a window.
+    op = node["op"]
+    t = _in(node, env, 0)
+    source = _in(node, env, 1)
+    init = float(_num(node["attrs"]["init"]))
+    window = node["attrs"]["window"]
+    strides = node["attrs"]["strides"]
+    padding = node["attrs"]["padding"]
+    rank = len(t.shape)
+    identity = -math.inf if op == "window_scatter_max" else math.inf
+
+    padded = t
+    if any(lo or hi for (lo, hi) in padding):
+        padded = t.pad(tuple((lo, hi) for (lo, hi) in padding), value=identity)
+    pshape = padded.shape
+
+    windows = padded._pool(tuple(window), stride=tuple(strides), dilation=1)
+    out_dims = list(windows.shape[:rank])
+    win_dims = list(windows.shape[rank:])
+    n_win = math.prod(win_dims) if win_dims else 1
+
+    flat_win = windows.reshape(tuple(out_dims) + (n_win,))
+    best = flat_win.max(axis=rank, keepdim=True) if op == "window_scatter_max" else flat_win.min(axis=rank, keepdim=True)
+    widx = Tensor.arange(n_win).reshape((1,) * len(out_dims) + (n_win,))
+    last = (flat_win == best).where(widx, -1).max(axis=rank, keepdim=True)
+    selected = (widx == last)  # one-hot at the last extreme per window
+    contrib = (selected * source.reshape(tuple(out_dims) + (1,))).reshape(tuple(out_dims) + tuple(win_dims))
+
+    # Linear index into the flat padded operand for each (out.., win..) element.
+    pstrides = [0] * rank
+    acc = 1
+    for a in range(rank - 1, -1, -1):
+        pstrides[a] = acc
+        acc *= pshape[a]
+
+    total_rank = 2 * rank
+    lin = None
+    for a in range(rank):
+        out_shape = [1] * total_rank
+        out_shape[a] = out_dims[a]
+        oc = Tensor.arange(out_dims[a]).reshape(tuple(out_shape))
+        win_shape = [1] * total_rank
+        win_shape[rank + a] = win_dims[a]
+        wc = Tensor.arange(win_dims[a]).reshape(tuple(win_shape))
+        coord = oc * strides[a] + wc
+        term = coord * pstrides[a]
+        lin = term if lin is None else lin + term
+
+    lin = lin.expand(tuple(out_dims) + tuple(win_dims)).reshape((-1,)).cast(dtypes.int32)
+    vals = contrib.reshape((-1,))
+    scattered = Tensor.zeros(math.prod(pshape), dtype=vals.dtype).scatter_reduce(0, lin, vals, reduce="sum")
+    out = scattered.reshape(pshape) + init
+
+    if any(lo or hi for (lo, hi) in padding):
+        out = out[tuple(slice(lo, lo + t.shape[a]) for a, (lo, hi) in enumerate(padding))]
+    return out
+
+
 def _iota(node):
     # Index counter along `axis` (or over the flattened tensor when axis is None).
     shape = node["shape"]
@@ -595,6 +657,8 @@ def apply(node, env) -> Tensor:
         result = _argreduce(node, env)
     elif op in ("window_sum", "window_max", "window_min", "window_product"):
         result = _window(node, env)
+    elif op in ("window_scatter_max", "window_scatter_min"):
+        result = _window_scatter(node, env)
     elif op in ("count_leading_zeros", "population_count"):
         result = _bit_reduce(node, env)
     elif op == "reshape":
@@ -652,6 +716,7 @@ SUPPORTED_OPS = (
     | set(_COMPARISON)
     | {"select", "sum", "product", "reduce_max", "reduce_min", "all", "any", "argmax", "argmin"}
     | {"window_sum", "window_max", "window_min", "window_product"}
+    | {"window_scatter_max", "window_scatter_min"}
     | {"count_leading_zeros", "population_count"}
     | {"reshape", "squeeze", "broadcast", "transpose", "reverse", "concatenate", "slice", "as_type", "bitcast", "dot", "conv"}
     | {"pad", "sort", "argsort", "gather", "iota", "clip", "stack", "eye"}

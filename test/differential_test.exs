@@ -451,6 +451,33 @@ defmodule NxTinygrad.DifferentialTest do
     )
   end
 
+  test "window_scatter (select-and-scatter) matches Nx incl. overlap and ties" do
+    {x, _} = Nx.Random.normal(Nx.Random.key(1), shape: {1, 1, 4, 4}, type: :f32)
+    s2 = Nx.iota({1, 1, 2, 2}, type: :f32) |> Nx.add(1.0)
+    s3 = Nx.iota({1, 1, 3, 3}, type: :f32) |> Nx.add(1.0)
+
+    fun = fn t, s2, s3 ->
+      {
+        Nx.window_scatter_max(t, s2, 0.0, {1, 1, 2, 2}, strides: [1, 1, 2, 2]),
+        Nx.window_scatter_max(t, s3, 0.0, {1, 1, 2, 2}, strides: [1, 1, 1, 1]),
+        Nx.window_scatter_min(t, s2, 0.0, {1, 1, 2, 2}, strides: [1, 1, 2, 2])
+      }
+    end
+
+    args = [x, s2, s3]
+    assert_close(apply(NxTinygrad.jit(fun), args), apply(fun, args))
+  end
+
+  test "max-pool backward gradient matches Nx" do
+    {img, _} = Nx.Random.normal(Nx.Random.key(5), shape: {2, 3, 4, 4}, type: :f32)
+
+    fun = fn t ->
+      Nx.Defn.value_and_grad(t, fn t -> Nx.sum(Nx.window_max(t, {1, 1, 2, 2}, strides: [1, 1, 2, 2])) end)
+    end
+
+    assert_close(apply(NxTinygrad.jit(fun), [img]), apply(fun, [img]), atol: 1.0e-4, rtol: 1.0e-4)
+  end
+
   test "cholesky (iterative linalg via while) matches Nx" do
     spd = Nx.tensor([[4.0, 1.0, 0.5], [1.0, 3.0, 0.2], [0.5, 0.2, 2.0]], type: :f32)
     fun = fn t -> Nx.LinAlg.cholesky(t) end
