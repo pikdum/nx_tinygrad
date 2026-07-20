@@ -126,10 +126,19 @@ class Executable:
     def _run_while(self, node, env):
         state = [env[i].realize() for i in node["inputs"]]
         cond, body = node["attrs"]["cond"], node["attrs"]["body"]
-        # Read the scalar condition each iteration (realizes it), then step the
-        # body, realizing to keep the lazy graph bounded.
+
+        # The body is a static computation (only the trip count is dynamic), so
+        # JIT-capture it for fast replay — unless it itself needs eager execution
+        # (a nested while or dynamic slice), in which case interpret it directly.
+        if any(_requires_eager(n) for n in body["nodes"]):
+            step = lambda s: self._interpret(body, s)  # noqa: E731
+        else:
+            jit = TinyJit(lambda *s: self._interpret(body, list(s)))
+            step = lambda s: jit(*[t.clone().realize() for t in s])  # noqa: E731
+
+        # Read the scalar condition each iteration (realizes it), then step.
         while bool(self._interpret(cond, state)[0].item()):
-            state = [t.realize() for t in self._interpret(body, state)]
+            state = [t.realize() for t in step(state)]
         return state
 
     def _graph_fn(self, *inputs):
