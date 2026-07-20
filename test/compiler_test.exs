@@ -95,4 +95,14 @@ defmodule NxTinygrad.CompilerTest do
     r2 = NxTinygrad.jit(&G.reduction/1).(x)
     assert_close(r1, r2)
   end
+
+  test "invalid output mode is rejected before worker execution" do
+    before = NxTinygrad.worker_stats()["execute_count"]
+
+    assert_raise ArgumentError, ~r/expected :device or :host/, fn ->
+      NxTinygrad.jit(&G.reduction/1, output: :elsewhere).(Nx.iota({2, 3}, type: :f32))
+    end
+
+    assert NxTinygrad.worker_stats()["execute_count"] == before
+  end
 end

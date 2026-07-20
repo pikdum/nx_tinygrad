@@ -48,6 +48,7 @@ defmodule NxTinygrad.Compiler do
 
   defp compile_graph(roots, output_container, opts) do
     graph = Lowering.to_graph(roots)
+    output = output_mode!(Keyword.get(opts, :output, :device))
 
     worker = resolve_worker(opts)
     execute_timeout = Keyword.get(opts, :execute_timeout, Config.execute_timeout())
@@ -59,10 +60,17 @@ defmodule NxTinygrad.Compiler do
       graph: graph,
       output_container: output_container,
       execute_timeout: execute_timeout,
-      output: Keyword.get(opts, :output, :device)
+      output: output
     }
 
     fn args_list -> Enum.map(args_list, &run_one(&1, ctx)) end
+  end
+
+  defp output_mode!(output) when output in [:device, :host], do: output
+
+  defp output_mode!(output) do
+    raise ArgumentError,
+          "invalid nx_tinygrad output mode #{inspect(output)}; expected :device or :host"
   end
 
   @impl true
