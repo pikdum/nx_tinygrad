@@ -178,11 +178,13 @@ class Handler:
                 specs.append({"shape": ospec["shape"], "dtype": ospec["dtype"]})
             return {"outputs": specs}, out_blobs
 
-        # Device mode: clone each output to a fresh buffer so the returned handle
-        # is immutable across later executions.
+        # Device mode: copy each output to a fresh buffer so the returned handle
+        # is immutable across later executions (JIT reuses output buffers).
+        from executable import immutable_copy
+
         specs = []
         for tensor, ospec in zip(outputs, executable.output_specs):
-            cloned = tensor.clone().realize()
+            cloned = immutable_copy(tensor)
             nbytes = int(self.np.prod(ospec["shape"], dtype="int64")) * numpy_dtype(ospec["dtype"]).itemsize
             bid = self.registry.put(cloned, ospec["shape"], ospec["dtype"], nbytes)
             specs.append({"id": bid, "shape": ospec["shape"], "dtype": ospec["dtype"]})

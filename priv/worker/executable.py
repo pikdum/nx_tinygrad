@@ -14,11 +14,43 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from tinygrad import Tensor, TinyJit
+from tinygrad import Tensor, TinyJit, Device
 
 import operations
 from dtype import numpy_dtype, tinygrad_dtype
 from errors import CompileError
+
+
+def immutable_copy(t: Tensor) -> Tensor:
+    """A fresh, independent realized copy of ``t``.
+
+    Captured TinyJit outputs reuse the same buffer on every replay, so a returned
+    handle must be copied to its own buffer to stay immutable. ``clone().realize()``
+    does this but pays tinygrad's full (~600us) scheduling cost per output. When
+    the device allocator supports a raw device-to-device transfer (HCQ/AMD SDMA),
+    we copy at the buffer level instead — ~3x cheaper and size-independent. The
+    HCQ transfer signals the device timeline, so later kernels reading the copy
+    correctly wait for it. Falls back to ``clone().realize()`` otherwise (e.g. CPU).
+    """
+    try:
+        t.realize()
+        src = t.uop.base.realized
+        # Only fast-path a standalone, whole-buffer output. If the output is a
+        # view into a larger/shared buffer (its base holds more elements than
+        # this tensor — as some gradient outputs do), a raw base-buffer copy
+        # would read the wrong region, so fall through to the safe clone.
+        if src is None or src.size != math.prod(t.shape):
+            raise NotImplementedError("output is a view/shared buffer")
+        dev = Device[src.device]
+        allocator = dev.allocator
+        if not hasattr(allocator, "_transfer"):
+            raise NotImplementedError("allocator has no _transfer")
+        dst = Tensor.empty(*t.shape, dtype=t.dtype, device=t.device)
+        dst.uop.buffer.allocate()
+        allocator._transfer(dst.uop.buffer._buf, src._buf, src.nbytes, dev, dev)
+        return dst
+    except Exception:  # noqa: BLE001 — any failure falls back to the safe path
+        return t.clone().realize()
 
 
 def _decode_value(value):
@@ -62,7 +94,11 @@ class Executable:
             env[spec["id"]] = tensor
         for node in self.graph["nodes"]:
             env[node["id"]] = operations.apply(node, env)
-        outs = [env[out["node"]] for out in self.output_specs]
+        # Force row-major contiguous outputs inside the captured graph (runs at
+        # replay speed). This is a no-op for already-contiguous outputs and lets
+        # immutable_copy do a raw buffer transfer safely even for outputs that
+        # would otherwise be strided views (e.g. gradients from dot/transpose).
+        outs = [env[out["node"]].contiguous() for out in self.output_specs]
         if outs:
             outs[0].realize(*outs[1:])
         return outs
