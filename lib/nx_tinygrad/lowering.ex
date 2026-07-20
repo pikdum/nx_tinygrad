@@ -219,6 +219,22 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, Atom.to_string(op), [aid], attrs)
   end
 
+  defp lower_new(%T{data: %Expr{op: :window_reduce, args: [tensor, acc, window, opts, fun]}} = t, state) do
+    %T{data: %Expr{op: :fun, args: [_params, body, _mfa]}} = fun
+    {ids, state} = lower_children([tensor, acc], state)
+    {body_sub, state} = lower_isolated([body], state)
+
+    attrs = %{
+      "window" => Tuple.to_list(window),
+      "strides" => opts[:strides],
+      "padding" => Enum.map(opts[:padding], fn {lo, hi} -> [lo, hi] end),
+      "window_dilations" => opts[:window_dilations],
+      "fn" => body_sub
+    }
+
+    add_node(state, t, "window_reduce", ids, attrs)
+  end
+
   defp lower_new(%T{data: %Expr{op: op, args: [a, window, opts]}} = t, state)
        when op in [:window_sum, :window_max, :window_min, :window_product] do
     {[aid], state} = lower_children([a], state)

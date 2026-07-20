@@ -132,6 +132,8 @@ class Executable:
                     env[out["id"]] = result
             elif node["op"] == "reduce":
                 env[node["id"]] = self._run_reduce(node, env)
+            elif node["op"] == "window_reduce":
+                env[node["id"]] = self._run_window_reduce(node, env)
             else:
                 env[node["id"]] = operations.apply(node, env)
 
@@ -158,6 +160,27 @@ class Executable:
 
         if keep:
             acc = acc.reshape(tuple(1 if a in axes else t.shape[a] for a in range(rank)))
+        return acc
+
+    def _run_window_reduce(self, node, env):
+        import math
+
+        t = env[node["inputs"][0]]
+        acc = env[node["inputs"][1]]
+        a = node["attrs"]
+        rank = len(t.shape)
+        if any(lo or hi for (lo, hi) in a["padding"]):
+            raise CompileError("window_reduce with padding is not supported")
+
+        pooled = t._pool(tuple(a["window"]), stride=tuple(a["strides"]), dilation=tuple(a["window_dilations"]))
+        out_dims = list(pooled.shape[:rank])
+        count = math.prod(pooled.shape[rank:])
+        flat = pooled.reshape(tuple(out_dims) + (count,))
+
+        if acc.shape == ():
+            acc = acc.reshape((1,) * len(out_dims)).expand(tuple(out_dims))
+        for i in range(count):
+            acc = self._interpret(a["fn"], [acc, flat[..., i]])[0]
         return acc
 
     def _interpret(self, subgraph, params):

@@ -916,5 +916,5 @@ SUPPORTED_OPS = (
     | {"put_slice", "indexed_add", "indexed_put"}
     | {"while"}
     | {"fft", "ifft", "real", "imag"}
-    | {"reduce"}
+    | {"reduce", "window_reduce"}
 )

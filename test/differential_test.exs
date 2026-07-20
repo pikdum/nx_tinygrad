@@ -519,6 +519,19 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(fun).(x), fun.(x), atol: 1.0e-4, rtol: 1.0e-4)
   end
 
+  test "window_reduce with a custom function matches Nx" do
+    x = Nx.iota({1, 1, 4, 4}, type: :f32) |> Nx.add(1.0)
+
+    fun = fn t ->
+      {
+        Nx.window_reduce(t, 0.0, {1, 1, 2, 2}, [strides: [1, 1, 2, 2]], fn a, b -> Nx.add(a, b) end),
+        Nx.window_reduce(t, -999.0, {1, 1, 2, 2}, [strides: [1, 1, 2, 2]], fn a, b -> Nx.max(a, b) end)
+      }
+    end
+
+    assert_close(NxTinygrad.jit(fun).(x), fun.(x), atol: 1.0e-4, rtol: 1.0e-4)
+  end
+
   test "cholesky (iterative linalg via while) matches Nx" do
     spd = Nx.tensor([[4.0, 1.0, 0.5], [1.0, 3.0, 0.2], [0.5, 0.2, 2.0]], type: :f32)
     fun = fn t -> Nx.LinAlg.cholesky(t) end

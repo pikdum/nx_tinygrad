@@ -115,7 +115,7 @@ def validate(graph: dict, blobs: list[bytes], max_nodes: int = MAX_NODES) -> Non
             _check(_valid_shape(node.get("shape")), "invalid node shape", shape=node.get("shape"))
             _check(is_supported(node.get("dtype")), f"unsupported node dtype: {node.get('dtype')}")
             specs[node["id"]] = (node["shape"], node["dtype"])
-            if node["op"] == "reduce":
+            if node["op"] in ("reduce", "window_reduce"):
                 _validate_subgraph(node["attrs"].get("fn"))
 
     _check(len(graph["outputs"]) >= 1, "graph must have at least one output")
