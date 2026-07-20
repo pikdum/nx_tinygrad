@@ -53,8 +53,8 @@ raises `NxTinygrad.StaleTensorError` instead.
 
 ## Compilation flow
 
-1. `NxTinygrad.Compiler.__compile__/4` calls the defn function with parameter
-   templates to obtain the output expression container.
+1. The compiler callback calls the defn function with parameter templates to
+   obtain the output expression container.
 2. `NxTinygrad.Lowering` walks the expression DAG post-order into the graph IR.
    Unsupported operations raise `NxTinygrad.CompileError` here — before any
    Python is contacted, with no silent host fallback.

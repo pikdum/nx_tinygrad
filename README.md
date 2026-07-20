@@ -73,7 +73,8 @@ result = predict.(x, weights, bias)
 - [docs/amd-nixos.md](docs/amd-nixos.md) — running on AMD without ROCm
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/performance.md](docs/performance.md) — cost breakdown + optimization experiments
-- [examples/](examples/) and [bench/](bench/)
+- [examples](https://github.com/pikdum/nx_tinygrad/tree/master/examples) and
+  [benchmarks](https://github.com/pikdum/nx_tinygrad/tree/master/bench)
 
 ## Telemetry
 
