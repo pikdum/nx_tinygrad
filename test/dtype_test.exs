@@ -18,6 +18,7 @@ defmodule NxTinygrad.DtypeTest do
 
   test "unsupported Nx type raises a compile error" do
     assert_raise NxTinygrad.CompileError, fn -> Dtype.to_name!({:c, 64}) end
+    assert_raise NxTinygrad.CompileError, fn -> Dtype.to_name!({:bf, 16}) end
   end
 
   test "unknown name returns an error tuple" do
