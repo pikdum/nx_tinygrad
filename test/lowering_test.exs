@@ -109,8 +109,8 @@ defmodule NxTinygrad.LoweringTest do
   end
 
   test "unsupported operations raise a compile error before Python" do
-    assert_raise NxTinygrad.CompileError, ~r/unsupported Nx operation/, fn ->
-      lower(fn x -> Nx.reduce(x, 0.0, fn a, b -> Nx.add(a, b) end) end, [Nx.iota({4}, type: :f32)])
+    assert_raise NxTinygrad.CompileError, fn ->
+      lower(fn x -> x |> Nx.LinAlg.qr() |> elem(0) end, [Nx.iota({3, 3}, type: :f32)])
     end
   end
 end
