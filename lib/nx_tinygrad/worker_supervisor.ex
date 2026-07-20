@@ -1,7 +1,7 @@
 defmodule NxTinygrad.WorkerSupervisor do
   @moduledoc """
-  Supervises worker processes. For v0.1 there is a single `:default` worker per
-  GPU; the tree is kept `one_for_one` so a worker can restart independently.
+  Supervises the lazy default worker and any additional device/named workers.
+  The tree is `one_for_one` so each worker can restart independently.
   """
   use Supervisor
 

@@ -73,3 +73,8 @@ only `{worker_id, generation, handle}`. When the resource is garbage-collected,
 its Rust `Drop` pushes a release onto a native queue (never blocking, never
 touching the Port). `NxTinygrad.ReleaseReaper` drains the queue and sends batched
 `release` requests. Explicit release uses `take/1` so GC cannot double-free.
+
+Compiled closures similarly share a native executable reference with the bounded
+lookup cache. Once the last owner is collected, the reaper sends an idempotent
+`release_executable` request so constants and TinyJit captures do not accumulate
+for the lifetime of the worker.

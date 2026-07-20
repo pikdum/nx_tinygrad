@@ -24,7 +24,8 @@ it straight through — the deprecated `AMD_IFACE`/`AMD_LLVM` env vars are gone.
   a supervised Erlang Port worker (`NxTinygrad.Worker`) with monotonic generation
   tracking and crash isolation, worker-side buffer registry and stats, and the
   `hello`, `device_info`, `upload`, `download`, `release`, `stats`, `synchronize`,
-  and `shutdown` commands.
+  and `shutdown` commands. The default worker starts lazily and can run either a
+  configured Python interpreter or the flake's packaged worker executable.
 - **M2** — versioned deterministic graph IR (`NxTinygrad.Graph`) with canonical
   JSON + cache key, Nx `Expr` lowering (`NxTinygrad.Lowering`) covering
   elementwise/comparison/select/shape/reduction/dot ops, an `Nx.Defn.Compiler`
@@ -33,10 +34,10 @@ it straight through — the deprecated `AMD_IFACE`/`AMD_LLVM` env vars are gone.
   `NxTinygrad.jit/2`, `jit_apply/3`, `device_info/1`, `worker_stats/1`,
   `synchronize/1` API. CPU results validated against `Nx.BinaryBackend`.
 - **M3** — TinyJit-backed executables: the graph function is captured
-  (warmup/capture/validate) at compile time and replayed on execute. Adds an
-  in-memory `NxTinygrad.ExecutableCache` keyed by graph + device + versions (so
-  identical graphs compile once per worker generation), duplicate-input cloning,
-  and output cloning for immutability. One execute RPC per invocation.
+  (warmup/capture/value validation) at compile time and replayed on execute. Adds
+  a bounded in-memory `NxTinygrad.ExecutableCache` keyed by graph, inline constant
+  contents, worker, device, and versions, duplicate-input cloning, and output
+  cloning for immutability. One execute RPC per invocation.
 - **M4** — `NxTinygrad.Backend` (`Nx.Backend`) keeps tensors resident as worker
   buffers: `from_binary`/`to_binary`/`backend_copy`/`backend_transfer`/
   `backend_deallocate`/`inspect` work, all other ops raise (no silent fallback).
@@ -45,10 +46,10 @@ it straight through — the deprecated `AMD_IFACE`/`AMD_LLVM` env vars are gone.
   Tensors carry a worker generation; a restart makes them stale
   (`NxTinygrad.StaleTensorError`). Adds `NxTinygrad.release/1`.
 - **M5** — Rustler NIF (`native/nx_tinygrad_ref`) providing a `TensorRef`
-  resource that owns only reference metadata. Its `Drop` pushes releases onto a
-  native queue; `NxTinygrad.ReleaseReaper` drains it and sends batched releases
-  to workers, discarding stale generations. Explicit release uses `take/1` so GC
-  cannot double-free. Verified by a leak test over 1000 dropped device tensors.
+  resource that owns only reference metadata. Tensor and compiled-executable
+  resources push releases onto native queues; `NxTinygrad.ReleaseReaper` drains
+  them and sends batched releases to workers, discarding stale generations.
+  Explicit tensor release uses `take/1` so GC cannot double-free.
 - **M7** — autograd via Nx: `Nx.Defn.value_and_grad` graphs lower and execute
   with the existing op set; validated against `Nx.BinaryBackend` for a
   linear+tanh loss and a 2-layer MLP (inference, gradients, and a loss-reducing
@@ -62,5 +63,5 @@ it straight through — the deprecated `AMD_IFACE`/`AMD_LLVM` env vars are gone.
 - **M8** — telemetry spans (`compile`/`execute`) and events
   (`transfer.upload`/`transfer.download`, `worker.restart`); docs
   (architecture, protocol, operation coverage, AMD-on-NixOS, troubleshooting);
-  runnable examples; and benchmarks (matmul, MLP, bridge overhead, direct
-  tinygrad baseline).
+  runnable examples; benchmarks (matmul, MLP, bridge overhead, direct tinygrad
+  baseline); release packaging checks; and public CI.

@@ -5,11 +5,8 @@ defmodule NxTinygrad.Device do
   Logical strings follow the spec form `[<IFACE>+]<BACKEND>[:<RENDERER>]`, e.g.
   `"KFD+AMD:LLVM"`, `"CPU"`, `"AMD"`.
 
-  tinygrad 0.12.0's `Device[...]` does not accept `"KFD+AMD:LLVM"` literally, so
-  we translate it into a concrete tinygrad device name plus environment variables
-  here. Those variables (notably `AMD_LLVM`/`AMD_IFACE`) are read by tinygrad at
-  import time, so they are passed to the worker Port's environment and must be
-  set before the worker imports tinygrad.
+  On tinygrad 0.13 the complete string is passed through as `DEV` before tinygrad
+  is imported, while tensors are created on the backend portion (`"AMD"`).
 
   This mirrors `priv/worker/device.py`; keep the two in sync.
   """

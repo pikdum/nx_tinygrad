@@ -6,7 +6,7 @@
 # Methodology: the SAME Nx computation is run three ways. For the tinygrad
 # backends the graph is compiled + captured once (warmup), inputs are resident on
 # that device, and outputs stay on-device (output: :device) — so each measured
-# call is a warm replay + one execute RPC, the steady-state a training loop sees.
+# call is a warm replay + one execute RPC, the steady-state a device-resident loop sees.
 # Plain Nx runs eagerly on the host BinaryBackend. Device outputs are released in
 # an untimed after_each hook so buffers don't accumulate.
 #
@@ -135,5 +135,5 @@ run.("matmul 64x64 (small - bridge-bound)", fn a, b -> Nx.dot(a, b) end, [mm_a, 
 run.("elementwise fusion, 512x512 (10 ops -> 1 kernel)", &W.elementwise/1, [ew_x])
 run.("elementwise fusion, 4096x4096 (10 ops -> 1 kernel)", &W.elementwise/1, [ew_big])
 run.("MLP inference, batch 64 (128->128->32)", &W.predict/2, [params, mx])
-run.("MLP value_and_grad, batch 64 (training step)", &W.grad/3, [params, mx, my])
+run.("MLP value_and_grad, batch 64", &W.grad/3, [params, mx, my])
 run.("matmul 1024x1024 (compute-heavy - GPU wins)", fn a, b -> Nx.dot(a, b) end, [big_a, big_b])

@@ -1,7 +1,7 @@
 defmodule NxTinygrad.TensorRef do
   @moduledoc """
-  Rustler NIF resource holding worker-buffer reference metadata (worker id,
-  generation, handle).
+  Rustler NIF resources holding worker tensor/executable reference metadata
+  (worker id, generation, handle).
 
   The resource carries no GPU state. When it is garbage-collected, its Rust
   `Drop` pushes a release onto a native queue that `NxTinygrad.ReleaseReaper`

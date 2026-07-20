@@ -39,9 +39,10 @@ matrix·vector, and batched matmul. Contraction/batch axes come straight from Nx
 ## dtypes
 
 Wire names map to Nx types. v0.1 required: `f32`, `s32`, `u8`. Also mapped:
-`f16`, `f64`, `s8`, `s16`, `s64`, `u16`, `u32`, `u64`. Not supported: `f64`
-performance, complex, packed/quantized types. Nx determines output types;
-tinygrad results are cast to satisfy the serialized output spec.
+`f16`, `f64`, `s8`, `s16`, `s64`, `u16`, `u32`, `u64`. `f64` is functional
+but not performance-optimized on the tested AMD device. Not supported: `bf16`,
+complex, packed, or quantized types. Nx determines output types; tinygrad results
+are cast to satisfy the serialized output spec.
 
 ## Autograd
 
@@ -52,6 +53,6 @@ needs the forward op set above (which covers the linear/MLP gradient graphs).
 ## Not in v0.1
 
 `conv`, `pad`, `put_slice`, `indexed_add`, `indexed_put`, `gather`, `take`,
-`take_along_axis`, `argmax`, `argmin`, `sort`, `argsort`, general `Nx.dot` axis
-configurations beyond the above, dynamic `while`/`cond`, `Nx.Block` with impure
+`take_along_axis`, `argmax`, `argmin`, `sort`, `argsort`, dynamic `while`/`cond`,
+`Nx.Block` with impure
 defaults. These raise a detailed compile error.

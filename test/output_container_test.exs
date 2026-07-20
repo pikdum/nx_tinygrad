@@ -50,8 +50,7 @@ defmodule NxTinygrad.OutputContainerTest do
     assert_close(b, Nx.negate(@x))
   end
 
-  test "struct implementing Nx.Container (Nx.Batch-like via Complex? use a tuple-of-map)" do
-    # A map with tensor values is a container; verify a heterogeneous nested shape.
+  test "heterogeneous nested map and tuple container" do
     got = NxTinygrad.jit(fn x -> %{outer: {Nx.negate(x)}, flat: Nx.add(x, 2.0)} end).(@x)
     assert_close(got.flat, Nx.add(@x, 2.0))
     {inner} = got.outer

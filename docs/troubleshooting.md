@@ -2,9 +2,10 @@
 
 ## The worker won't start
 
-- `NxTinygrad.Config.python_executable/0` resolves the interpreter from
-  `NX_TINYGRAD_PYTHON` (set by the Nix devshell), falling back to `python3` on
-  `PATH`. Inside `nix develop` this is set automatically.
+- `NX_TINYGRAD_WORKER` selects a complete packaged worker executable.
+- Otherwise `NxTinygrad.Config.python_executable/0` resolves the interpreter
+  from application config or `NX_TINYGRAD_PYTHON`, falling back to `python3` on
+  `PATH`. Inside this repository's `nix develop` shell it is set automatically.
 - Run the probe directly: `python priv/worker/device.py CPU` (or `KFD+AMD:LLVM`).
   It prints a device_info JSON, or an error.
 

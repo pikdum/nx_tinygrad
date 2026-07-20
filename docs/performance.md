@@ -67,7 +67,9 @@ behaviour would slot it in), but it does not move the number people care about.
 
 - The immutability copy (~330 µs) is still the largest single execute cost. For
   multi-output graphs it's paid per output; batching the copies (one timeline
-  wait for all) would help training steps.
+  wait for all) would help gradient-heavy graphs. Worker stats expose
+  `immutable_copy_fast` and `immutable_copy_fallback` so tinygrad API drift cannot
+  silently hide a lost fast path.
 - Elixir-side marshaling (~220 µs of the host-mode path) — tensor construction,
   `TensorRef` NIF calls per input/output.
 - Nothing here is transport-bound, so effort should stay on the Python/tinygrad

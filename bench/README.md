@@ -2,7 +2,7 @@
 
 ```sh
 # Three-way: plain Nx (BinaryBackend) vs Nx→tinygrad CPU vs Nx→tinygrad GPU.
-NX_TINYGRAD_GPU_TESTS=1 mix run bench/nx_backends.exs   # GPU row needs an AMD device
+mix run bench/nx_backends.exs   # GPU row appears when an AMD device is available
 
 # Focused scripts.
 mix run bench/matmul.exs
@@ -16,7 +16,7 @@ DEV=CPU python bench/direct_tinygrad.py
 Reference machine: **Ryzen 5 5600X** (CPU) + **Radeon RX 7900 XT / gfx1100** (GPU),
 tinygrad 0.13, via Benchee. The **same Nx computation** is run three ways:
 
-- **nx (binary, cpu)** — plain Nx on `Nx.BinaryBackend`, eager on the host.
+- **nx (binary, cpu)** — plain Nx on the pure-Elixir `Nx.BinaryBackend`, eager on the host.
 - **nx→tinygrad (cpu)** — `NxTinygrad.jit`, CPU worker.
 - **nx→tinygrad (gpu)** — `NxTinygrad.jit`, AMD worker (`KFD+AMD:LLVM`).
 
@@ -30,21 +30,21 @@ Average time per call (lower is better):
 
 | Workload                                   | plain Nx (binary) | tinygrad CPU | tinygrad GPU |
 | ------------------------------------------ | ----------------: | -----------: | -----------: |
-| matmul 64×64 (tiny)                        |          27.1 ms  |     1.20 ms  |     1.28 ms  |
-| elementwise ×10 fused, 512×512             |           203 ms  |     4.80 ms  |     1.25 ms  |
-| elementwise ×10 fused, 4096×4096           |    (too slow)     |    85.1 ms   |     1.45 ms  |
-| MLP inference, batch 64 (128→128→32)       |           137 ms  |     1.86 ms  |     1.41 ms  |
-| MLP value_and_grad, batch 64               |           308 ms  |     5.87 ms  |     5.05 ms  |
-| matmul 1024×1024                           |    (too slow)     |    36.9 ms   |     1.32 ms  |
+| matmul 64×64 (tiny)                        |         26.47 ms  |     1.50 ms  |     0.72 ms  |
+| elementwise ×10 fused, 512×512             |        210.71 ms  |     5.27 ms  |     0.69 ms  |
+| elementwise ×10 fused, 4096×4096           |    (too slow)     |    88.12 ms  |     1.42 ms  |
+| MLP inference, batch 64 (128→128→32)       |        132.68 ms  |     2.20 ms  |     0.76 ms  |
+| MLP value_and_grad, batch 64               |        296.62 ms  |     6.19 ms  |     1.62 ms  |
+| matmul 1024×1024                           |    (too slow)     |    37.52 ms  |     0.87 ms  |
 
 ## What the numbers say
 
-- **Going through tinygrad beats plain Nx by 22–160×** wherever `BinaryBackend`
+- **Going through tinygrad beats plain Nx by 18–306×** wherever `BinaryBackend`
   is fast enough to measure. `Nx.BinaryBackend` is a pure-Elixir interpreter with
   per-operation overhead; tinygrad fuses the whole graph into compiled kernels.
-- **The GPU wins big on compute-heavy work** — 28× over tinygrad-CPU on a 1024²
-  matmul, 59× on a 4096² fused elementwise chain.
-- **Small graphs are bridge-bound.** There is a ~1.2 ms floor per call — one
+- **The GPU wins big on compute-heavy work** — 43× over tinygrad-CPU on a 1024²
+  matmul, 62× on a 4096² fused elementwise chain.
+- **Small graphs are bridge-bound.** There is a sub-millisecond GPU floor per call — one
   `execute` and one `synchronize` round trip across the Erlang Port to Python.
   For tiny ops (64² matmul, small MLP) that floor dominates, so CPU and GPU look
   the same and the GPU's compute advantage is hidden. Keep tensors resident and

@@ -1,8 +1,7 @@
 defmodule NxTinygrad.ReleaseReaper do
   @moduledoc """
-  Periodically drains the native release queue (populated when `TensorRef`
-  resources are garbage-collected) and sends batched `release` requests to the
-  owning workers.
+  Periodically drains the native tensor and executable release queues and sends
+  batched, idempotent release requests to the owning workers.
 
   Releases whose generation no longer matches the worker's current generation
   are discarded: that worker restarted, so the buffer is already gone.

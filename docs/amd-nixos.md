@@ -1,7 +1,7 @@
 # AMD on NixOS without ROCm
 
 nx_tinygrad drives AMD GPUs through tinygrad's **native KFD interface** and
-compiles kernels with **libLLVM** (`AMD_LLVM=1`). It needs none of ROCm, HIP,
+compiles kernels with **libLLVM** through `DEV=KFD+AMD:LLVM`. It needs none of ROCm, HIP,
 comgr, rocBLAS, or MIOpen.
 
 ## Requirements

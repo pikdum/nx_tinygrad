@@ -40,6 +40,7 @@ Implemented in `NxTinygrad.Protocol` (Elixir) and `priv/worker/protocol.py`.
 | `upload`       | `shape`, `dtype` (+ 1 blob)                        | buffer `id` |
 | `download`     | `id`                                              | tensor spec (+ 1 blob) |
 | `release`      | `ids`                                             | `released` count (idempotent) |
+| `release_executable` | `ids`                                      | released executable count (internal, idempotent) |
 | `synchronize`  | —                                                 | `{}` |
 | `stats`        | —                                                 | buffer/executable counts, byte counters |
 | `shutdown`     | —                                                 | `{}` then the worker exits |

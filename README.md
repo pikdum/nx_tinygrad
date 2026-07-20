@@ -25,16 +25,49 @@ there is no Python RPC per Nx operation. Nx provides the Elixir tensor API,
 containers, and autograd; tinygrad provides scheduling, fusion, kernel
 generation, memory planning, JIT replay, and AMD execution.
 
-The default installation requires **no ROCm, HIP, comgr, rocBLAS, MIOpen, XLA,
+The default runtime requires **no ROCm, HIP, comgr, rocBLAS, MIOpen, XLA,
 TensorFlow, or PyTorch**. The AMD GPU is driven through tinygrad's native KFD
-interface, and kernels are compiled with libLLVM (`AMD_LLVM=1`).
+interface, and kernels are compiled with libLLVM through `DEV=KFD+AMD:LLVM`.
 
 ## Status
 
 Early development. See [STATUS.md](STATUS.md) for milestone progress and pinned
 versions, and [SPEC.md](SPEC.md) for the design.
 
-## Quickstart (NixOS)
+## Installation
+
+The Elixir package contains the compiler, worker sources, and a small Rustler
+NIF. Building it requires Rust. At runtime, choose one worker setup:
+
+- Set `NX_TINYGRAD_WORKER` to the packaged `nx_tinygrad_worker` executable from
+  this flake. This is the recommended Nix/NixOS path.
+- Set `NX_TINYGRAD_PYTHON` to a Python interpreter containing tinygrad 0.13 and
+  numpy. A project-local virtual environment works outside Nix.
+
+Once published to Hex, add:
+
+```elixir
+def deps do
+  [{:nx_tinygrad, "~> 0.1.0"}]
+end
+```
+
+For a consuming Nix flake, add this repository as an input, include its default
+package, and export the worker path:
+
+```nix
+inputs.nx_tinygrad.url = "github:pikdum/nx_tinygrad";
+
+# In your dev shell or service environment:
+packages = [ inputs.nx_tinygrad.packages.${system}.default ];
+NX_TINYGRAD_WORKER = "${inputs.nx_tinygrad.packages.${system}.default}/bin/nx_tinygrad_worker";
+```
+
+The default Python process starts lazily on first use. Set
+`config :nx_tinygrad, start_default_worker: true` to start it during application
+boot instead.
+
+## Quickstart (repository on NixOS)
 
 ```sh
 # Enter the dev shell (Elixir 1.20 / OTP 29, Rust, ROCm-free tinygrad worker).

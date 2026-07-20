@@ -28,14 +28,14 @@ it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
 ## Milestones
 
 - [x] **M0** — flake, scaffolding, device probe, no-ROCm closure check.
-- [x] **M1** — framed protocol + supervised CPU worker (24 Elixir + 11 Python tests).
-- [x] **M2** — graph IR + Nx lowering, CPU end-to-end, BinaryBackend parity (44 Elixir + 23 Python tests).
-- [x] **M3** — TinyJit capture/replay, executable cache, one execute RPC/call (53 Elixir + 25 Python tests).
-- [x] **M4** — device tensor backend, device-resident I/O, output containers, stale-tensor errors (66 Elixir tests).
-- [x] **M5** — Rustler tensor-ref resource, GC-triggered release queue, reaper, leak test (68 Elixir tests).
-- [x] **M7** — Nx `value_and_grad` parity, MLP inference + training step (CPU, 4 tests).
-- [x] **M6** — AMD `KFD+AMD:LLVM` path: smoke, parity, persistence, no-ROCm-loaded (9 GPU tests on RX 7900 XT).
-- [x] **M8** — telemetry, docs, examples, benchmarks; 73 Elixir + 25 Python tests, flake checks green. Release 0.1.0.
+- [x] **M1** — framed protocol + supervised CPU worker.
+- [x] **M2** — graph IR + Nx lowering, CPU end-to-end, BinaryBackend parity.
+- [x] **M3** — TinyJit capture/replay, executable cache, one execute RPC/call.
+- [x] **M4** — device tensor backend, device-resident I/O, output containers, stale-tensor errors.
+- [x] **M5** — Rustler tensor/executable references, GC-triggered release queues, reaper, leak tests.
+- [x] **M7** — Nx `value_and_grad` parity, MLP inference, and a verified parameter update.
+- [x] **M6** — AMD `KFD+AMD:LLVM` path: smoke, parity, persistence, and no ROCm loaded on RX 7900 XT.
+- [x] **M8** — telemetry, docs, examples, benchmarks, and flake checks. Release 0.1.0.
 
 ## Commands / results
 

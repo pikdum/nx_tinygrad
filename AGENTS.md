@@ -32,7 +32,7 @@ tensor backend that runs whole Nx graphs on [tinygrad](https://tinygrad.org)
 - GPU tests (needs an AMD device): `NX_TINYGRAD_GPU_TESTS=1 mix test test/gpu`
 - Python worker tests: `python -m pytest -q worker_tests`
 - Format: `mix format`
-- Benchmarks: `NX_TINYGRAD_GPU_TESTS=1 mix run bench/nx_backends.exs`
+- Benchmarks: `mix run bench/nx_backends.exs`
 - Device probe: `python priv/worker/device.py "KFD+AMD:LLVM"`
 - Flake checks: `nix flake check` (incl. `no-rocm-closure`, `python-tests`)
 

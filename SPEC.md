@@ -56,7 +56,7 @@ M         UTF-8 JSON metadata
 ```
 
 Commands: `hello`, `device_info`, `compile`, `upload`, `execute`, `download`,
-`release`, `synchronize`, `stats`, `shutdown`. Every request → exactly one
+`release`, `release_executable`, `synchronize`, `stats`, `shutdown`. Every request → exactly one
 response with the same id. Success: `{"ok": true, "result": {...}}`. Failure:
 `{"ok": false, "error": {"class","message","details","python_traceback"}}`.
 
@@ -108,7 +108,7 @@ the graph reaches the compiler, so the compiler sees a larger forward graph.
 
 ## AMD without ROCm
 
-`DEV=KFD+AMD:LLVM` → tinygrad `AMD` device, env `AMD_IFACE=KFD, AMD_LLVM=1`.
+`DEV=KFD+AMD:LLVM` → tinygrad `AMD` device using the native KFD interface and LLVM renderer.
 Requires amdgpu, `/dev/kfd`, `/dev/dri/renderD*`, LLVM ≥ 18. No HIP/HSA/comgr.
 Do not set `HSA_OVERRIDE_GFX_VERSION`. Do not use PCI/USB interfaces by default.
 
