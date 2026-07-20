@@ -26,13 +26,29 @@ def _in(node, env, i=0):
 
 # -- elementwise unary --------------------------------------------------------
 
+def _expm1(t: Tensor) -> Tensor:
+    # tinygrad has no expm1 primitive. exp(x)-1 catastrophically cancels near
+    # zero, so use a short Taylor expansion there and the regular expression
+    # elsewhere. The threshold leaves the omitted term far below f32 precision.
+    x2 = t * t
+    small = t + x2 * (1 / 2) + x2 * t * (1 / 6) + x2 * x2 * (1 / 24) + x2 * x2 * t * (1 / 120)
+    return (t.abs() < 1e-2).where(small, t.exp() - 1)
+
+
+def _log1p(t: Tensor) -> Tensor:
+    # As above, avoid losing small x when forming 1+x in the input dtype.
+    x2 = t * t
+    small = t - x2 * (1 / 2) + x2 * t * (1 / 3) - x2 * x2 * (1 / 4) + x2 * x2 * t * (1 / 5)
+    return (t.abs() < 1e-2).where(small, (t + 1).log())
+
+
 _UNARY = {
     "negate": lambda t: -t,
     "abs": lambda t: t.abs(),
     "exp": lambda t: t.exp(),
-    "expm1": lambda t: t.exp() - 1,
+    "expm1": _expm1,
     "log": lambda t: t.log(),
-    "log1p": lambda t: (t + 1).log(),
+    "log1p": _log1p,
     "sqrt": lambda t: t.sqrt(),
     "rsqrt": lambda t: t.rsqrt(),
     "tanh": lambda t: t.tanh(),

@@ -28,6 +28,14 @@ def test_add_subtract_multiply_divide():
     assert np.allclose(run("divide", [a, b]), [0.5, 1, 2])
 
 
+def test_expm1_and_log1p_are_stable_near_zero():
+    values = np.array([1e-8, -1e-8, 1e-6, -1e-6, 1e-3], dtype=np.float32)
+    tensor = Tensor(values)
+
+    assert np.allclose(run("expm1", [tensor]), np.expm1(values), rtol=1e-6, atol=1e-12)
+    assert np.allclose(run("log1p", [tensor]), np.log1p(values), rtol=1e-6, atol=1e-12)
+
+
 def test_broadcasting_scalar_plus_vector():
     out = run("add", [T(1.0), T([1, 2, 3])], shape=[3])
     assert np.allclose(out, [2, 3, 4])

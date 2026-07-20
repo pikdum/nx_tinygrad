@@ -51,6 +51,13 @@ defmodule NxTinygrad.CompilerTest do
     assert_close(NxTinygrad.jit(&G.softmax/1).(x), G.softmax(x))
   end
 
+  test "expm1 and log1p preserve small values" do
+    x = Nx.tensor([1.0e-8, -1.0e-8, 1.0e-6, -1.0e-6, 1.0e-3], type: :f32)
+
+    assert_close(NxTinygrad.jit(&Nx.expm1/1).(x), Nx.expm1(x), atol: 1.0e-12, rtol: 1.0e-6)
+    assert_close(NxTinygrad.jit(&Nx.log1p/1).(x), Nx.log1p(x), atol: 1.0e-12, rtol: 1.0e-6)
+  end
+
   test "multiple outputs (tuple)" do
     x = Nx.iota({2, 3}, type: :f32)
     {a, b} = NxTinygrad.jit(&G.multi_output/1).(x)
