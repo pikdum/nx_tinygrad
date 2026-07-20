@@ -109,8 +109,18 @@ defmodule NxTinygrad.LoweringTest do
   end
 
   test "unsupported operations raise a compile error before Python" do
-    assert_raise NxTinygrad.CompileError, fn ->
-      lower(fn x -> x |> Nx.LinAlg.qr() |> elem(0) end, [Nx.iota({3, 3}, type: :f32)])
+    # Coverage is now broad enough that no plain Nx op reaches the catch-all, so
+    # exercise it directly with a synthetic unknown-op node.
+    fake = %Nx.Tensor{
+      data: %Nx.Defn.Expr{id: make_ref(), op: :totally_not_a_real_op, args: [], context: :root},
+      shape: {2},
+      type: {:f, 32},
+      names: [nil],
+      vectorized_axes: []
+    }
+
+    assert_raise NxTinygrad.CompileError, ~r/unsupported Nx operation/, fn ->
+      Lowering.to_graph([fake])
     end
   end
 end

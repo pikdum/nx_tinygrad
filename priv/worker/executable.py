@@ -69,6 +69,8 @@ def _requires_eager(node) -> bool:
         return True
     if node["op"] == "slice" and len(node["inputs"]) > 1:
         return True
+    if node["op"] == "put_slice" and len(node["inputs"]) > 2:
+        return True
     return False
 
 

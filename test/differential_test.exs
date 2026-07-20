@@ -539,6 +539,23 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(fun).(spd), fun.(spd), atol: 1.0e-4, rtol: 1.0e-3)
   end
 
+  test "qr and lu decompositions reconstruct the input (via while/cond/put_slice)" do
+    a = Nx.tensor([[4.0, 1.0, 0.5], [2.0, 3.0, 0.2], [0.5, 1.2, 2.0]], type: :f32)
+
+    qr_fun = fn t ->
+      {q, r} = Nx.LinAlg.qr(t)
+      Nx.dot(q, r)
+    end
+
+    lu_fun = fn t ->
+      {p, l, u} = Nx.LinAlg.lu(t)
+      Nx.dot(p, Nx.dot(l, u))
+    end
+
+    assert_close(NxTinygrad.jit(qr_fun).(a), a, atol: 1.0e-3, rtol: 1.0e-3)
+    assert_close(NxTinygrad.jit(lu_fun).(a), a, atol: 1.0e-3, rtol: 1.0e-3)
+  end
+
   test "triangular_solve matches Nx (lower/upper, vector/matrix, transpose)" do
     lo = Nx.tensor([[2.0, 0.0, 0.0], [1.0, 3.0, 0.0], [1.0, 1.0, 4.0]], type: :f32)
     up = Nx.tensor([[2.0, 1.0, 1.0], [0.0, 3.0, 1.0], [0.0, 0.0, 4.0]], type: :f32)

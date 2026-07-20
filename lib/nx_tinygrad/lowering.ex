@@ -342,11 +342,21 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, "iota", [], %{"axis" => axis && normalize_axis(axis, rank(t))})
   end
 
-  # put_slice: overwrite a contiguous block starting at compile-time offsets.
+  # put_slice: overwrite a contiguous block. Start offsets may be compile-time
+  # constants or runtime scalar tensors (the latter become extra node inputs).
   defp lower_new(%T{data: %Expr{op: :put_slice, args: [a, starts, slice]}} = t, state) do
-    {ids, state} = lower_children([a, slice], state)
-    start_vals = Enum.map(starts, &scalar_constant!(&1, :put_slice))
-    add_node(state, t, "put_slice", ids, %{"starts" => start_vals})
+    {base_ids, state} = lower_children([a, slice], state)
+
+    {start_specs, dyn_exprs} =
+      Enum.reduce(starts, {[], []}, fn s, {specs, dyn} ->
+        case classify_start(s) do
+          {:static, n} -> {[%{"static" => n} | specs], dyn}
+          {:dynamic, expr} -> {[%{"input" => length(dyn)} | specs], [expr | dyn]}
+        end
+      end)
+
+    {dyn_ids, state} = lower_children(Enum.reverse(dyn_exprs), state)
+    add_node(state, t, "put_slice", base_ids ++ dyn_ids, %{"starts" => Enum.reverse(start_specs)})
   end
 
   # indexed_add / indexed_put: scatter (accumulate / overwrite) at coordinates
@@ -497,6 +507,35 @@ defmodule NxTinygrad.Lowering do
     lower_tuple(inner, state)
   end
 
+  # tuple-valued cond: build a predicated select chain per output position.
+  defp lower_tuple(%T{data: %Expr{op: :cond, args: [clauses, default]}}, state) do
+    default_elems = Tuple.to_list(default)
+    {default_ids, state} = lower_children(default_elems, state)
+
+    {clause_data, state} =
+      Enum.map_reduce(clauses, state, fn {pred, expr}, st ->
+        {pred_id, st} = lower(pred, st)
+        {expr_ids, st} = lower_children(Tuple.to_list(expr), st)
+        {{pred_id, expr_ids}, st}
+      end)
+
+    Enum.map_reduce(Enum.with_index(default_elems), state, fn {elem, i}, st ->
+      shape = shape_of(elem)
+      dtype = dtype_of(elem)
+
+      Enum.reduce(Enum.reverse(clause_data), {Enum.at(default_ids, i), st}, fn {pred_id, expr_ids},
+                                                                               {else_id, s} ->
+        add_raw_node(s, "select", [pred_id, Enum.at(expr_ids, i), else_id], %{}, shape, dtype)
+      end)
+    end)
+  end
+
+  # A plain container tuple of tensors (e.g. an intermediate {q, r} in a linalg
+  # decomposition); lower each element to its id.
+  defp lower_tuple(tuple, state) when is_tuple(tuple) do
+    lower_children(Tuple.to_list(tuple), state)
+  end
+
   defp lower_tuple(%T{data: %Expr{op: op}} = t, _state) do
     raise NxTinygrad.CompileError,
       message: "elem projection from unsupported tuple source: #{op}",
@@ -608,6 +647,13 @@ defmodule NxTinygrad.Lowering do
   defp scalar_constant!(%T{data: %Expr{op: :constant, args: [number]}}, _op), do: number
 
   defp scalar_constant!(%T{data: %Expr{op: :tensor, args: [tensor]}}, _op), do: Nx.to_number(tensor)
+
+  # Classify a slice/put_slice start index as a compile-time constant or a
+  # runtime (dynamic) scalar tensor.
+  defp classify_start(%T{data: %Expr{op: :metadata, args: [inner, _meta]}}), do: classify_start(inner)
+  defp classify_start(%T{data: %Expr{op: :constant, args: [n]}}), do: {:static, n}
+  defp classify_start(%T{data: %Expr{op: :tensor, args: [tensor]}}), do: {:static, Nx.to_number(tensor)}
+  defp classify_start(%T{} = expr), do: {:dynamic, expr}
 
   defp scalar_constant!(%T{} = other, op) do
     raise NxTinygrad.CompileError,

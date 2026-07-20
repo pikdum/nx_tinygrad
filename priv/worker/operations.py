@@ -618,10 +618,11 @@ def _put_slice(node, env):
     # pad + select. Nx clamps starts so the slice fits fully inside the target.
     target = _in(node, env, 0)
     sl = _in(node, env, 1)
-    starts = node["attrs"]["starts"]
+    dyn = [env[i] for i in node["inputs"][2:]]
     pad_config = []
-    for dim, start in enumerate(starts):
-        start = max(0, min(int(start), target.shape[dim] - sl.shape[dim]))
+    for dim, spec in enumerate(node["attrs"]["starts"]):
+        raw = spec["static"] if "static" in spec else int(dyn[spec["input"]].item())
+        start = max(0, min(int(raw), target.shape[dim] - sl.shape[dim]))
         pad_config.append((start, target.shape[dim] - sl.shape[dim] - start))
     padded = sl.pad(tuple(pad_config))
     mask = (sl * 0 + 1).pad(tuple(pad_config))
