@@ -588,6 +588,43 @@ def _conv(node, env):
     return out.permute(tuple(inverse))
 
 
+def _triangular_solve(node, env):
+    # Solve a @ x = b for triangular `a` by statically unrolled forward/back
+    # substitution (the matrix dimension is known, so no dynamic loop).
+    a = _in(node, env, 0)
+    b = _in(node, env, 1)
+    attrs = node["attrs"]
+
+    if not attrs["left_side"]:
+        raise UnsupportedOperation("triangular_solve with left_side=false is not supported")
+
+    lower = attrs["lower"]
+    transform = attrs["transform_a"]
+    if transform == "transpose":
+        a = a.permute(1, 0)
+        lower = not lower
+    elif transform != "none":
+        raise UnsupportedOperation(f"triangular_solve transform_a={transform!r} is not supported")
+
+    n = a.shape[0]
+    vector = len(b.shape) == 1
+    rhs = b.reshape((n, 1)) if vector else b
+
+    solved = {}
+    for i in range(n) if lower else range(n - 1, -1, -1):
+        acc = rhs[i]
+        for j, xj in solved.items():
+            acc = acc - a[i, j] * xj
+        solved[i] = acc / a[i, i]
+
+    stacked = None
+    for i in range(n):
+        row = solved[i].reshape((1,) + solved[i].shape)
+        stacked = row if stacked is None else stacked.cat(row, dim=0)
+
+    return stacked.reshape((n,)) if vector else stacked
+
+
 def _dot(node, env):
     a, b = _in(node, env, 0), _in(node, env, 1)
     attrs = node["attrs"]
@@ -704,6 +741,8 @@ def apply(node, env) -> Tensor:
         result = _dot(node, env)
     elif op == "conv":
         result = _conv(node, env)
+    elif op == "triangular_solve":
+        result = _triangular_solve(node, env)
     else:
         raise UnsupportedOperation(f"unsupported Nx operation: {op}", details={"op": op})
 
@@ -719,6 +758,7 @@ SUPPORTED_OPS = (
     | {"window_scatter_max", "window_scatter_min"}
     | {"count_leading_zeros", "population_count"}
     | {"reshape", "squeeze", "broadcast", "transpose", "reverse", "concatenate", "slice", "as_type", "bitcast", "dot", "conv"}
+    | {"triangular_solve"}
     | {"pad", "sort", "argsort", "gather", "iota", "clip", "stack", "eye"}
     | {"put_slice", "indexed_add", "indexed_put"}
     | {"while"}

@@ -331,6 +331,18 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, Atom.to_string(op), ids, %{"axes" => axes})
   end
 
+  defp lower_new(%T{data: %Expr{op: :triangular_solve, args: [a, b, opts]}} = t, state) do
+    {ids, state} = lower_children([a, b], state)
+
+    attrs = %{
+      "transform_a" => Atom.to_string(opts[:transform_a] || :none),
+      "left_side" => opts[:left_side] != false,
+      "lower" => opts[:lower] != false
+    }
+
+    add_node(state, t, "triangular_solve", ids, attrs)
+  end
+
   defp lower_new(%T{data: %Expr{op: :as_type, args: [a]}} = t, state) do
     {[aid], state} = lower_children([a], state)
     add_node(state, t, "as_type", [aid], %{})

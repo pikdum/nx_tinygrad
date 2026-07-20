@@ -493,6 +493,25 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(fun).(spd), fun.(spd), atol: 1.0e-4, rtol: 1.0e-3)
   end
 
+  test "triangular_solve matches Nx (lower/upper, vector/matrix, transpose)" do
+    lo = Nx.tensor([[2.0, 0.0, 0.0], [1.0, 3.0, 0.0], [1.0, 1.0, 4.0]], type: :f32)
+    up = Nx.tensor([[2.0, 1.0, 1.0], [0.0, 3.0, 1.0], [0.0, 0.0, 4.0]], type: :f32)
+    b1 = Nx.tensor([4.0, 5.0, 6.0], type: :f32)
+    b2 = Nx.tensor([[4.0, 1.0], [5.0, 2.0], [6.0, 3.0]], type: :f32)
+
+    fun = fn lo, up, b1, b2 ->
+      {
+        Nx.LinAlg.triangular_solve(lo, b1),
+        Nx.LinAlg.triangular_solve(up, b1, lower: false),
+        Nx.LinAlg.triangular_solve(lo, b2),
+        Nx.LinAlg.triangular_solve(lo, b1, transform_a: :transpose)
+      }
+    end
+
+    args = [lo, up, b1, b2]
+    assert_close(apply(NxTinygrad.jit(fun), args), apply(fun, args), atol: 1.0e-4, rtol: 1.0e-3)
+  end
+
   test "dynamic slice with a runtime start index matches Nx" do
     t = Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]], type: :f32)
 
