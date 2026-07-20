@@ -1,8 +1,8 @@
 defmodule NxTinygrad.WorkerIds do
   @moduledoc """
-  Stable bidirectional mapping between worker names (atoms) and small integer
-  ids. The integer id is what the Rust `TensorRef` resource stores, since it
-  cannot hold an Elixir atom; the reaper maps it back to a worker name.
+  Stable bidirectional mapping between worker identities and small integer ids.
+  The integer id is what the Rust `TensorRef` resource stores; the reaper maps it
+  back to a registered name or worker pid.
   """
   use GenServer
 

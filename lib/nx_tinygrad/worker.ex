@@ -31,6 +31,10 @@ defmodule NxTinygrad.Worker do
   def via(name), do: {:via, Registry, {@registry, {:worker, name}}}
 
   @doc "Look up a worker pid by name."
+  def whereis(pid) when is_pid(pid) do
+    if Process.alive?(pid), do: pid
+  end
+
   def whereis(name) do
     case Registry.lookup(@registry, {:worker, name}) do
       [{pid, _}] -> pid
@@ -44,7 +48,7 @@ defmodule NxTinygrad.Worker do
   Returns `{:ok, result_map, blobs}` on success, or `{:error, exception}` on a
   structured worker error, timeout, or crash.
   """
-  @spec request(atom() | pid(), String.t(), map(), [binary()], keyword()) ::
+  @spec request(term() | pid(), String.t(), map(), [binary()], keyword()) ::
           {:ok, map(), [binary()]} | {:error, Exception.t()}
   def request(worker, command, args \\ %{}, blobs \\ [], opts \\ []) do
     timeout = Keyword.get(opts, :timeout, Config.execute_timeout())
@@ -69,7 +73,7 @@ defmodule NxTinygrad.Worker do
   def generation(worker), do: GenServer.call(resolve(worker), :generation)
 
   defp resolve(pid) when is_pid(pid), do: pid
-  defp resolve(name) when is_atom(name), do: via(name)
+  defp resolve(name), do: via(name)
 
   # -- GenServer ----------------------------------------------------------
 

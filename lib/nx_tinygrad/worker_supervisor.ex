@@ -39,9 +39,8 @@ defmodule NxTinygrad.WorkerSupervisor do
     name
   end
 
-  defp worker_name(device) do
-    if device == Config.device(), do: :default, else: String.to_atom("nx_tinygrad_worker_" <> device)
-  end
+  @doc false
+  def worker_name(device), do: if(device == Config.device(), do: :default, else: {:device, device})
 
   defp ensure_started(:default, _device), do: :ok
 

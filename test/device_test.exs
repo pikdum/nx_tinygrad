@@ -2,6 +2,7 @@ defmodule NxTinygrad.DeviceTest do
   use ExUnit.Case, async: true
 
   alias NxTinygrad.Device
+  alias NxTinygrad.WorkerSupervisor
 
   test "KFD+AMD:LLVM is a native tinygrad DEV string; backend is AMD" do
     parsed = Device.parse("KFD+AMD:LLVM")
@@ -32,5 +33,13 @@ defmodule NxTinygrad.DeviceTest do
 
   test "is case-insensitive" do
     assert Device.parse("kfd+amd:llvm").tinygrad_device == "AMD"
+  end
+
+  test "device worker names use non-atom registry keys" do
+    for index <- 1..1_000 do
+      name = WorkerSupervisor.worker_name("CUSTOM_#{index}")
+      assert name == {:device, "CUSTOM_#{index}"}
+      refute is_atom(name)
+    end
   end
 end

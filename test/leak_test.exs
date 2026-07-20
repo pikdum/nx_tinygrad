@@ -43,4 +43,32 @@ defmodule NxTinygrad.LeakTest do
     # take/1 already claimed the ref, so a later dealloc is a no-op.
     assert Nx.backend_deallocate(t) == :already_deallocated
   end
+
+  test "GC releases tensors created with a worker pid" do
+    pid = NxTinygrad.Worker.whereis(:default)
+    baseline = settled_buffer_count()
+
+    create_pid_tensor(pid)
+
+    final =
+      Enum.reduce_while(1..50, nil, fn _, _ ->
+        :erlang.garbage_collect()
+        count = settled_buffer_count()
+
+        if count <= baseline,
+          do: {:halt, count},
+          else:
+            (
+              Process.sleep(20)
+              {:cont, count}
+            )
+      end)
+
+    assert final <= baseline
+  end
+
+  defp create_pid_tensor(pid) do
+    _tensor = Nx.tensor([1.0, 2.0]) |> Nx.backend_transfer({Backend, worker: pid})
+    :ok
+  end
 end
