@@ -10,6 +10,18 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 
 ### Added
 
+- **Control flow & multi-output**: `while` (dynamic loops, eager worker-side
+  execution — unblocks generation and Axon training loops), `cond` (predicated
+  selects), `elem` + tuple-valued blocks (unlocks `top_k` and non-iterative
+  `Nx.LinAlg` composites like `determinant`).
+- **Convolution backward**: permuted/dilated `conv`, so conv gradients (w.r.t.
+  kernel and input) lower — unblocks CNN training.
+- **Dynamic slice**: `slice` with runtime (tensor) start indices.
+- Elementwise: `erf_inv`, `count_leading_zeros`, `population_count`,
+  `conjugate` (real), `bitcast`.
+- Integration examples under `examples/` (Mix.install): Axon MLP training,
+  Bumblebee text classification (BERT), Bumblebee image classification (ResNet).
+
 - Elementwise unary ops: `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `asinh`,
   `acosh`, `atanh`, `erf`, `cbrt`, `sign`, `is_nan`, `is_infinity`, `bitwise_not`.
   Most map directly to tinygrad primitives; `cbrt` is composed (magnitude root +

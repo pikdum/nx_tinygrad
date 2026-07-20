@@ -63,9 +63,13 @@ Optional Nx ops that carry a pre-traced *pure* default expression are lowered by
 binding their inputs to that expression and lowering it into primitives — the
 impure callback is never run. This covers `cumulative_sum/product/max/min`,
 `top_k`, and non-iterative `Nx.LinAlg` composites (e.g. `determinant`).
-Tuple-valued blocks are projected with `elem`. `cond` lowers to a chain of
-predicated `select`s (pure branches). Dynamic `while` is not yet supported (see
-below).
+Tuple-valued sources are projected with `elem`.
+
+`cond` lowers to a chain of predicated `select`s (pure branches). `while` lowers
+to a multi-output node whose condition and body are self-contained sub-graphs;
+the worker runs it as an eager loop (reading the scalar condition each
+iteration), so data-dependent trip counts work. Graphs containing a `while` (or
+a dynamic `slice`) run eagerly rather than via TinyJit capture.
 
 ## Linear algebra
 
@@ -98,19 +102,16 @@ needs the forward op set above (which covers the linear/MLP gradient graphs).
 
 These raise a detailed compile error, grouped by the underlying reason:
 
-- **Dynamic `while`** — tinygrad's `TinyJit` captures a static kernel sequence, so
-  a data-dependent loop count cannot be captured in one graph. This also blocks
-  the *iterative* `Nx.LinAlg` ops that build on it: `cholesky`, `qr`, `lu`,
-  `svd`, `eigh`, and `triangular_solve`. (Requires a worker-side loop executor /
-  non-JIT path — a design change.)
 - **`reduce` / `window_reduce` with a custom accumulator function** — arbitrary
   user reductions have no general tinygrad mapping (standard associative
   reductions are already covered by `sum`/`product`/`reduce_max`/`reduce_min`
   and the `window_*` ops).
 - **Complex numbers** — tinygrad has no complex dtype, so `fft`, `ifft`, and
   `conjugate`-to-complex are unsupported (`real`/`imag` work on real inputs).
-- **`window_scatter_max` / `window_scatter_min`** — pooling-gradient scatter, not
-  yet implemented.
+- **`window_scatter_max` / `window_scatter_min`** — max-pool-gradient scatter,
+  not yet implemented.
 - **`bf16` dtype** — the numpy transport can't natively carry bfloat16.
-- Transposed/permuted `conv` (input dilation, non-identity permutations, batch
-  groups).
+- **Iterative `Nx.LinAlg`** (`cholesky`, `qr`, `lu`, `svd`, `eigh`,
+  `triangular_solve`) — these run through `while`, which now lowers, but their
+  numerics haven't been validated yet.
+- `conv` with `batch_group_size` > 1.
