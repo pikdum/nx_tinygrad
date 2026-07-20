@@ -232,12 +232,9 @@ class Handler:
         return s, []
 
     def cmd_synchronize(self, _args, _blobs):
-        try:
-            dev = self.Device[self.tg_device]
-            if hasattr(dev, "synchronize"):
-                dev.synchronize()
-        except Exception as exc:  # noqa: BLE001
-            log(f"synchronize warning: {exc}")
+        dev = self.Device[self.tg_device]
+        if hasattr(dev, "synchronize"):
+            dev.synchronize()
         return {}, []
 
     def cmd_shutdown(self, _args, _blobs):
