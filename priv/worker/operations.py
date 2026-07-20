@@ -284,10 +284,20 @@ def _argsort(node, env):
 
 
 def _slice(node, env):
-    t = _in(node, env)
-    starts = node["attrs"]["starts"]
+    t = _in(node, env, 0)
+    dyn = [env[i] for i in node["inputs"][1:]]
     lengths = node["attrs"]["lengths"]
     strides = node["attrs"]["strides"]
+
+    starts = []
+    for axis, spec in enumerate(node["attrs"]["starts"]):
+        if "static" in spec:
+            starts.append(spec["static"])
+        else:
+            # Dynamic start (a scalar tensor); Nx clamps it so the slice fits.
+            raw = int(dyn[spec["input"]].item())
+            starts.append(max(0, min(raw, t.shape[axis] - lengths[axis])))
+
     idx = tuple(slice(s, s + l, st) for s, l, st in zip(starts, lengths, strides))
     return t[idx]
 

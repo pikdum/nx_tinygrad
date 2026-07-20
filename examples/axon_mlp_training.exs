@@ -18,7 +18,8 @@ Mix.install([
 Nx.global_default_backend(Nx.BinaryBackend)
 
 device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
-Nx.Defn.default_options(compiler: NxTinygrad.Compiler, device: device)
+# output: :host so Axon's between-step eager tensor ops run on the binary backend.
+Nx.Defn.default_options(compiler: NxTinygrad.Compiler, device: device, output: :host)
 IO.puts("Training through nx_tinygrad on device=#{device}\n")
 
 # Target: a nonlinear function of two inputs. The MLP must learn it.

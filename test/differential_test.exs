@@ -32,6 +32,10 @@ defmodule NxTinygrad.WhileGraphs do
 
     r
   end
+
+  defn dynamic_slice(t, i) do
+    Nx.slice(t, [i, 0], [1, 3])
+  end
 end
 
 defmodule NxTinygrad.DifferentialTest do
@@ -445,6 +449,19 @@ defmodule NxTinygrad.DifferentialTest do
       NxTinygrad.jit(&NxTinygrad.WhileGraphs.grow_until/1).(x),
       NxTinygrad.WhileGraphs.grow_until(x)
     )
+  end
+
+  test "dynamic slice with a runtime start index matches Nx" do
+    t = Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]], type: :f32)
+
+    for i <- [0, 2, 3] do
+      idx = Nx.tensor(i, type: :s32)
+
+      assert_close(
+        NxTinygrad.jit(&NxTinygrad.WhileGraphs.dynamic_slice/2).(t, idx),
+        NxTinygrad.WhileGraphs.dynamic_slice(t, idx)
+      )
+    end
   end
 
   test "cond lowers to predicated selects across all branches" do

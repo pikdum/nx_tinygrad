@@ -24,7 +24,7 @@ repo = "microsoft/resnet-50"
 serving =
   Bumblebee.Vision.image_classification(model, featurizer,
     compile: [batch_size: 1],
-    defn_options: [compiler: NxTinygrad.Compiler, device: device]
+    defn_options: [compiler: NxTinygrad.Compiler, device: device, output: :host]
   )
 
 image =

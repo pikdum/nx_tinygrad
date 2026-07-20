@@ -57,6 +57,15 @@ def immutable_copy(t: Tensor, stats=None) -> Tensor:
         return t.clone().realize()
 
 
+def _requires_eager(node) -> bool:
+    # Nodes that must read a runtime scalar (breaking static JIT capture).
+    if node["op"] == "while":
+        return True
+    if node["op"] == "slice" and len(node["inputs"]) > 1:
+        return True
+    return False
+
+
 def _decode_value(value):
     if isinstance(value, str):
         return {"Infinity": math.inf, "-Infinity": -math.inf, "NaN": math.nan}[value]
@@ -89,9 +98,10 @@ class Executable:
         self.duplicate_input_clones = 0
         self.kernel_count = 0
         self._jit = None
-        # A data-dependent `while` can't be JIT-captured (its trip count varies),
-        # so such graphs run eagerly node-by-node instead of via TinyJit replay.
-        self._has_while = any(node["op"] == "while" for node in graph["nodes"])
+        # Some nodes read runtime scalar values (a `while`'s condition, a dynamic
+        # slice start), which can't be JIT-captured — such graphs run eagerly
+        # node-by-node instead of via TinyJit replay.
+        self._eager = any(_requires_eager(node) for node in graph["nodes"])
         self._capture(validate_capture)
 
     # -- graph evaluation ---------------------------------------------------
@@ -154,9 +164,10 @@ class Executable:
         return Tensor(arr, device=self.device).clone().realize()
 
     def _capture(self, validate: bool) -> None:
-        # A graph with no inputs is a pure constant computation, and a graph with
-        # a data-dependent while can't be captured; both run eagerly via run().
-        if not self.input_specs or self._has_while:
+        # A graph with no inputs is a pure constant computation, and graphs that
+        # read runtime scalars (while, dynamic slice) can't be captured; both run
+        # eagerly via run().
+        if not self.input_specs or self._eager:
             return
 
         self._jit = TinyJit(self._graph_fn)

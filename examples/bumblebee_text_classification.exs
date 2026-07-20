@@ -25,7 +25,7 @@ repo = "finiteautomata/bertweet-base-sentiment-analysis"
 serving =
   Bumblebee.Text.text_classification(model, tokenizer,
     compile: [batch_size: 1, sequence_length: 64],
-    defn_options: [compiler: NxTinygrad.Compiler, device: device]
+    defn_options: [compiler: NxTinygrad.Compiler, device: device, output: :host]
   )
 
 for text <- [

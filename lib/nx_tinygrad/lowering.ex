@@ -252,9 +252,25 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, "concatenate", ids, %{"axis" => normalize_axis(axis, rank(t))})
   end
 
+  # slice: start indices may be static integers or dynamic scalar tensors
+  # (e.g. slicing at a loop counter). Dynamic starts become extra node inputs the
+  # worker reads and clamps at runtime.
   defp lower_new(%T{data: %Expr{op: :slice, args: [a, starts, lengths, strides]}} = t, state) do
-    {[aid], state} = lower_children([a], state)
-    add_node(state, t, "slice", [aid], %{"starts" => starts, "lengths" => lengths, "strides" => strides})
+    {aid, state} = lower(a, state)
+
+    {start_specs, dyn_exprs} =
+      Enum.reduce(starts, {[], []}, fn
+        s, {specs, dyn} when is_integer(s) -> {[%{"static" => s} | specs], dyn}
+        s, {specs, dyn} -> {[%{"input" => length(dyn)} | specs], [s | dyn]}
+      end)
+
+    {dyn_ids, state} = lower_children(Enum.reverse(dyn_exprs), state)
+
+    add_node(state, t, "slice", [aid | dyn_ids], %{
+      "starts" => Enum.reverse(start_specs),
+      "lengths" => lengths,
+      "strides" => strides
+    })
   end
 
   defp lower_new(%T{data: %Expr{op: :pad, args: [a, value, config]}} = t, state) do
