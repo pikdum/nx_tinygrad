@@ -24,7 +24,9 @@ defmodule NxTinygrad.Compiler do
     GraphCacheKey,
     Lowering,
     OutputContainer,
-    Worker
+    TensorRef,
+    Worker,
+    WorkerIds
   }
 
   alias Nx.Defn.Composite
@@ -52,11 +54,12 @@ defmodule NxTinygrad.Compiler do
 
     worker = resolve_worker(opts)
     execute_timeout = Keyword.get(opts, :execute_timeout, Config.execute_timeout())
-    executable_id = ensure_compiled(worker, graph, opts)
+    executable = ensure_compiled(worker, graph, opts)
 
     ctx = %{
       worker: worker,
-      executable_id: executable_id,
+      executable_id: executable.executable_id,
+      executable_ref: executable.executable_ref,
       graph: graph,
       output_container: output_container,
       execute_timeout: execute_timeout,
@@ -121,17 +124,24 @@ defmodule NxTinygrad.Compiler do
         )
 
       case ExecutableCache.get(key) do
-        %{generation: ^generation, executable_id: id} ->
-          id
+        %{generation: ^generation, executable_id: _id, executable_ref: _ref} = entry ->
+          entry
 
         _ ->
-          id = compile_worker(worker, graph, opts)
-          ExecutableCache.put(key, %{generation: generation, executable_id: id})
-          id
+          entry = compile_entry(worker, generation, graph, opts)
+          ExecutableCache.put(key, entry)
+          entry
       end
     else
-      compile_worker(worker, graph, opts)
+      generation = Worker.generation(worker)
+      compile_entry(worker, generation, graph, opts)
     end
+  end
+
+  defp compile_entry(worker, generation, graph, opts) do
+    id = compile_worker(worker, graph, opts)
+    ref = TensorRef.new_executable(WorkerIds.id_for(worker), generation, id)
+    %{generation: generation, executable_id: id, executable_ref: ref}
   end
 
   defp compile_worker(worker, graph, opts) do

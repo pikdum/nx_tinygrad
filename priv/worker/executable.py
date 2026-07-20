@@ -209,3 +209,11 @@ class ExecutableRegistry:
 
     def count(self) -> int:
         return len(self._executables)
+
+    def release(self, ids) -> int:
+        """Remove compiled executables. Unknown ids are ignored."""
+        removed = 0
+        for exec_id in ids:
+            if self._executables.pop(exec_id, None) is not None:
+                removed += 1
+        return removed

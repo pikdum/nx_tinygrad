@@ -69,6 +69,7 @@ class Handler:
             "upload": self.cmd_upload,
             "download": self.cmd_download,
             "release": self.cmd_release,
+            "release_executable": self.cmd_release_executable,
             "stats": self.cmd_stats,
             "synchronize": self.cmd_synchronize,
             "shutdown": self.cmd_shutdown,
@@ -217,6 +218,11 @@ class Handler:
     def cmd_release(self, args, _blobs):
         ids = args.get("ids", [])
         removed = self.registry.release(ids)
+        return {"released": removed}, []
+
+    def cmd_release_executable(self, args, _blobs):
+        ids = args.get("ids", [])
+        removed = self.exec_registry.release(ids)
         return {"released": removed}, []
 
     def cmd_stats(self, _args, _blobs):

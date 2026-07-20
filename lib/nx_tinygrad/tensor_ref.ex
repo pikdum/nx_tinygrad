@@ -25,5 +25,14 @@ defmodule NxTinygrad.TensorRef do
   @doc "Drain all queued releases from dropped references."
   def drain_releases, do: err()
 
+  @doc "Create a GC-owned reference to a compiled worker executable."
+  def new_executable(_worker_id, _generation, _handle), do: err()
+
+  @doc "The executable handle stored in an executable reference."
+  def executable_handle(_ref), do: err()
+
+  @doc "Drain queued releases from dropped executable references."
+  def drain_executable_releases, do: err()
+
   defp err, do: :erlang.nif_error(:nif_not_loaded)
 end

@@ -15,6 +15,8 @@ use std::sync::{LazyLock, Mutex};
 /// Global queue of releases produced by dropped resources.
 static RELEASE_QUEUE: LazyLock<Mutex<Vec<(u64, u64, u64)>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static EXECUTABLE_RELEASE_QUEUE: LazyLock<Mutex<Vec<(u64, u64, u64)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
 pub struct TensorRef {
     worker_id: u64,
@@ -23,8 +25,17 @@ pub struct TensorRef {
     released: AtomicBool,
 }
 
+pub struct ExecutableRef {
+    worker_id: u64,
+    generation: u64,
+    handle: u64,
+}
+
 #[rustler::resource_impl]
 impl Resource for TensorRef {}
+
+#[rustler::resource_impl]
+impl Resource for ExecutableRef {}
 
 impl Drop for TensorRef {
     fn drop(&mut self) {
@@ -33,6 +44,14 @@ impl Drop for TensorRef {
             if let Ok(mut queue) = RELEASE_QUEUE.lock() {
                 queue.push((self.worker_id, self.generation, self.handle));
             }
+        }
+    }
+}
+
+impl Drop for ExecutableRef {
+    fn drop(&mut self) {
+        if let Ok(mut queue) = EXECUTABLE_RELEASE_QUEUE.lock() {
+            queue.push((self.worker_id, self.generation, self.handle));
         }
     }
 }
@@ -68,10 +87,32 @@ fn generation(resource: ResourceArc<TensorRef>) -> u64 {
     resource.generation
 }
 
+#[rustler::nif]
+fn new_executable(worker_id: u64, generation: u64, handle: u64) -> ResourceArc<ExecutableRef> {
+    ResourceArc::new(ExecutableRef {
+        worker_id,
+        generation,
+        handle,
+    })
+}
+
+#[rustler::nif]
+fn executable_handle(resource: ResourceArc<ExecutableRef>) -> u64 {
+    resource.handle
+}
+
 /// Drain and return all queued releases produced by dropped resources.
 #[rustler::nif]
 fn drain_releases() -> Vec<(u64, u64, u64)> {
     match RELEASE_QUEUE.lock() {
+        Ok(mut queue) => std::mem::take(&mut *queue),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[rustler::nif]
+fn drain_executable_releases() -> Vec<(u64, u64, u64)> {
+    match EXECUTABLE_RELEASE_QUEUE.lock() {
         Ok(mut queue) => std::mem::take(&mut *queue),
         Err(_) => Vec::new(),
     }

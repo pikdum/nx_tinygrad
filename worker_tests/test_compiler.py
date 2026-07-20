@@ -132,6 +132,19 @@ def test_duplicate_input_cloning():
     assert np.allclose(out.numpy(), [2, 4, 6])
 
 
+def test_executable_registry_release_is_idempotent():
+    registry = executable_mod.ExecutableRegistry()
+
+    class FakeExecutable:
+        id = registry.allocate_id()
+
+    registry.put(FakeExecutable())
+    assert registry.count() == 1
+    assert registry.release([FakeExecutable.id]) == 1
+    assert registry.release([FakeExecutable.id]) == 0
+    assert registry.count() == 0
+
+
 def test_validation_rejects_dangling_reference():
     graph = {
         "version": 1,

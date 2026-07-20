@@ -11,7 +11,8 @@ config :nx_tinygrad,
   compile_timeout: 120_000,
   execute_timeout: 60_000,
   # In-memory graph/executable cache.
-  cache: true
+  cache: true,
+  executable_cache_size: 256
 
 if config_env() == :test do
   import_config "test.exs"

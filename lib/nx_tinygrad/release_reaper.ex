@@ -37,24 +37,30 @@ defmodule NxTinygrad.ReleaseReaper do
   defp schedule, do: Process.send_after(self(), :tick, @interval)
 
   defp drain do
-    releases = TensorRef.drain_releases()
+    tensor_releases = TensorRef.drain_releases()
+    executable_releases = TensorRef.drain_executable_releases()
 
-    releases
+    tensor_releases
     |> Enum.group_by(fn {worker_id, _gen, _handle} -> worker_id end)
-    |> Enum.each(&release_group/1)
+    |> Enum.each(&release_group(&1, "release"))
 
-    length(releases)
+    executable_releases
+    |> Enum.group_by(fn {worker_id, _gen, _handle} -> worker_id end)
+    |> Enum.each(&release_group(&1, "release_executable"))
+
+    length(tensor_releases) + length(executable_releases)
   end
 
-  defp release_group({worker_id, entries}) do
+  defp release_group({worker_id, entries}, command) do
     with name when not is_nil(name) <- WorkerIds.name_for(worker_id),
          pid when is_pid(pid) <- Worker.whereis(name) do
       current = Worker.generation(name)
       handles = for {_wid, gen, handle} <- entries, gen == current, do: handle
 
       if handles != [] do
-        # Best-effort; a busy or restarting worker just means we retry next tick.
-        _ = Worker.request(name, "release", %{"ids" => handles}, [], timeout: 5_000)
+        # Best-effort. Once a command reaches a live worker it remains queued even
+        # if the reply times out; a worker restart frees all of its old resources.
+        _ = Worker.request(name, command, %{"ids" => handles}, [], timeout: 5_000)
       end
     else
       _ -> :ok

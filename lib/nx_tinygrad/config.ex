@@ -7,7 +7,8 @@ defmodule NxTinygrad.Config do
     debug: 0,
     compile_timeout: 120_000,
     execute_timeout: 60_000,
-    cache: true
+    cache: true,
+    executable_cache_size: 256
   }
 
   @spec get(atom()) :: term()
@@ -21,6 +22,7 @@ defmodule NxTinygrad.Config do
   def compile_timeout, do: get(:compile_timeout)
   def execute_timeout, do: get(:execute_timeout)
   def cache?, do: get(:cache)
+  def executable_cache_size, do: get(:executable_cache_size)
 
   @doc """
   The Python interpreter used to run the worker.

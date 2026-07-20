@@ -15,7 +15,7 @@ defmodule NxTinygrad.ExecutableCache do
   @impl true
   def init(_) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-    {:ok, %{}}
+    {:ok, %{limit: NxTinygrad.Config.executable_cache_size()}}
   end
 
   @doc "Fetch a cached entry (a map) by key, or `nil`."
@@ -28,8 +28,7 @@ defmodule NxTinygrad.ExecutableCache do
 
   @doc "Store a cache entry."
   def put(key, value) do
-    :ets.insert(@table, {key, value})
-    :ok
+    GenServer.call(__MODULE__, {:put, key, value})
   end
 
   def delete(key) do
@@ -41,5 +40,21 @@ defmodule NxTinygrad.ExecutableCache do
   def clear do
     :ets.delete_all_objects(@table)
     :ok
+  end
+
+  @doc false
+  def size, do: :ets.info(@table, :size)
+
+  @impl true
+  def handle_call({:put, key, value}, _from, state) do
+    if :ets.lookup(@table, key) == [] and :ets.info(@table, :size) >= state.limit do
+      case :ets.first(@table) do
+        :"$end_of_table" -> :ok
+        oldest -> :ets.delete(@table, oldest)
+      end
+    end
+
+    :ets.insert(@table, {key, value})
+    {:reply, :ok, state}
   end
 end

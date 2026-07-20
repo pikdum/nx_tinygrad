@@ -71,4 +71,42 @@ defmodule NxTinygrad.CacheTest do
     assert_close(add_small.(x), Nx.tensor([1.0, 2.0]))
     assert_close(add_large.(x), Nx.tensor([10.0, 20.0]))
   end
+
+  test "lookup cache is bounded" do
+    limit = NxTinygrad.Config.executable_cache_size()
+
+    for key <- 1..(limit + 50) do
+      ExecutableCache.put({:test, key}, %{key: key})
+    end
+
+    assert ExecutableCache.size() == limit
+  end
+
+  test "uncached executables are released after their compiled closure is collected" do
+    baseline = NxTinygrad.worker_stats()["executable_count"]
+    run_uncached_graph()
+
+    final =
+      Enum.reduce_while(1..50, nil, fn _, _ ->
+        :erlang.garbage_collect()
+        NxTinygrad.ReleaseReaper.drain_now()
+        count = NxTinygrad.worker_stats()["executable_count"]
+
+        if count <= baseline,
+          do: {:halt, count},
+          else:
+            (
+              Process.sleep(20)
+              {:cont, count}
+            )
+      end)
+
+    assert final <= baseline
+  end
+
+  defp run_uncached_graph do
+    compiled = NxTinygrad.jit(fn t -> Nx.negate(t) end, cache: false, output: :host)
+    _result = compiled.(Nx.tensor([1.0, 2.0]))
+    :ok
+  end
 end
