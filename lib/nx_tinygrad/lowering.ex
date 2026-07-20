@@ -15,7 +15,7 @@ defmodule NxTinygrad.Lowering do
 
   @unary ~w(negate abs exp expm1 log log1p sqrt rsqrt tanh sigmoid sin cos
             tan asin acos atan sinh cosh asinh acosh atanh erf erfc erf_inv cbrt sign round
-            conjugate count_leading_zeros population_count
+            conjugate real imag count_leading_zeros population_count
             is_nan is_infinity bitwise_not floor ceil)a
   @binary ~w(add subtract multiply divide pow max min remainder quotient atan2
              bitwise_and bitwise_or bitwise_xor left_shift right_shift
@@ -353,6 +353,15 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, "bitcast", [aid], %{})
   end
 
+  defp lower_new(%T{data: %Expr{op: op, args: [a, opts]}} = t, state) when op in [:fft, :ifft] do
+    {[aid], state} = lower_children([a], state)
+
+    add_node(state, t, Atom.to_string(op), [aid], %{
+      "length" => opts[:length],
+      "axis" => normalize_axis(opts[:axis], rank(a))
+    })
+  end
+
   defp lower_new(%T{data: %Expr{op: :dot, args: [a, ca, ba, b, cb, bb]}} = t, state) do
     {[aid, bid], state} = lower_children([a, b], state)
 
@@ -592,6 +601,7 @@ defmodule NxTinygrad.Lowering do
   end
 
   # Encode numeric constants; map non-finite atoms to strings the worker understands.
+  defp encode_number(%Complex{re: re, im: im}), do: %{"re" => encode_number(re), "im" => encode_number(im)}
   defp encode_number(n) when is_number(n), do: n
   defp encode_number(:infinity), do: "Infinity"
   defp encode_number(:neg_infinity), do: "-Infinity"

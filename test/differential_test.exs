@@ -183,6 +183,25 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(fun).(x, y), fun.(x, y))
   end
 
+  test "complex arithmetic, conjugate, real/imag/abs, and fft/ifft match Nx" do
+    r = Nx.tensor([1.0, 2.0, 3.0, 4.0], type: :f32)
+
+    c =
+      Nx.tensor(
+        [Complex.new(1.0, 1.0), Complex.new(2.0, -1.0), Complex.new(0.0, 3.0), Complex.new(-2.0, 0.5)],
+        type: {:c, 64}
+      )
+
+    fft_fun = fn x -> {Nx.fft(x), Nx.ifft(Nx.fft(x))} end
+
+    arith_fun = fn x ->
+      {Nx.add(x, x), Nx.multiply(x, x), Nx.conjugate(x), Nx.real(x), Nx.imag(x), Nx.abs(x)}
+    end
+
+    assert_close(NxTinygrad.jit(fft_fun).(r), fft_fun.(r), atol: 1.0e-4, rtol: 1.0e-4)
+    assert_close(NxTinygrad.jit(arith_fun).(c), arith_fun.(c), atol: 1.0e-4, rtol: 1.0e-4)
+  end
+
   test "bf16 arithmetic matches Nx within bf16 precision" do
     x = Nx.tensor([1.5, -2.25, 3.0, 0.5, -4.0], type: :bf16)
     y = Nx.tensor([2.0, 4.0, -1.0, 8.0, 0.25], type: :bf16)

@@ -17,8 +17,14 @@ import numpy as np
 from tinygrad import Tensor, TinyJit, Device
 
 import operations
-from dtype import numpy_dtype, tinygrad_dtype, wire_numpy, wire_tensor
+from dtype import component_dtype, is_complex, numpy_dtype, tinygrad_dtype, wire_numpy, wire_tensor
 from errors import CompileError
+from operations import Cx
+
+
+def _expected_shape(spec) -> list:
+    # A complex tensor is stored as a real float tensor with a trailing [2] axis.
+    return list(spec["shape"]) + [2] if is_complex(spec["dtype"]) else list(spec["shape"])
 
 
 def immutable_copy(t: Tensor, stats=None) -> Tensor:
@@ -72,9 +78,22 @@ def _decode_value(value):
     return value
 
 
-def _make_constant(const: dict, blobs: list[bytes], device: str) -> Tensor:
+def _make_constant(const: dict, blobs: list[bytes], device: str):
     shape = tuple(const["shape"])
     dtype = const["dtype"]
+
+    if is_complex(dtype):
+        comp = tinygrad_dtype(component_dtype(dtype))
+        if "data_index" in const:
+            arr = np.frombuffer(blobs[const["data_index"]], dtype=numpy_dtype(dtype)).reshape(shape).copy()
+            return Cx(wire_tensor(arr, dtype, device).realize())
+        value = const["value"]  # {"re": ..., "im": ...}
+        re = Tensor.full(shape or (1,), _decode_value(value["re"]), device=device, dtype=comp)
+        im = Tensor.full(shape or (1,), _decode_value(value["im"]), device=device, dtype=comp)
+        if not shape:
+            re, im = re.reshape(()), im.reshape(())
+        return Cx(operations._cxt(re, im).realize())
+
     if "data_index" in const:
         arr = np.frombuffer(blobs[const["data_index"]], dtype=numpy_dtype(dtype)).reshape(shape).copy()
         return wire_tensor(arr, dtype, device).realize()
@@ -144,7 +163,7 @@ class Executable:
     def _graph_fn(self, *inputs):
         env = dict(self.constants)
         for spec, tensor in zip(self.input_specs, inputs):
-            env[spec["id"]] = tensor
+            env[spec["id"]] = Cx(tensor) if is_complex(spec["dtype"]) else tensor
         self._eval_nodes(self.graph["nodes"], env)
         # Force row-major contiguous outputs inside the captured graph (runs at
         # replay speed). This is a no-op for already-contiguous outputs and lets
@@ -153,6 +172,8 @@ class Executable:
         outs = []
         for out in self.output_specs:
             tensor = env[out["node"]]
+            if isinstance(tensor, Cx):
+                tensor = tensor.t  # complex output -> real [..., 2] tensor for transport
             contiguous = tensor.contiguous()
             # contiguous() is a no-op for an already-contiguous input or view
             # such as reshape. TinyJit would then retain the capture-time input
@@ -166,6 +187,10 @@ class Executable:
 
     def _dummy(self, spec, seed: int) -> Tensor:
         shape = tuple(spec["shape"])
+        if is_complex(spec["dtype"]):
+            comp = numpy_dtype(component_dtype(spec["dtype"]))
+            arr = (np.arange(math.prod(shape) * 2, dtype=comp) + seed).reshape(shape + (2,))
+            return Tensor(arr, device=self.device).clone().realize()
         size = math.prod(shape)
         arr = (np.arange(size, dtype=numpy_dtype(spec["dtype"])) + seed).reshape(shape)
         # clone() forces scalars and other constant-foldable inputs to own real
@@ -195,8 +220,8 @@ class Executable:
         if len(outs) != len(self.output_specs):
             raise CompileError(f"captured {len(outs)} outputs, expected {len(self.output_specs)}")
         for out, spec in zip(outs, self.output_specs):
-            if list(out.shape) != list(spec["shape"]):
-                raise CompileError(f"captured output shape {list(out.shape)} != {spec['shape']}")
+            if list(out.shape) != _expected_shape(spec):
+                raise CompileError(f"captured output shape {list(out.shape)} != {_expected_shape(spec)}")
 
         if validate:
             self._validate_replay(reference, outs)

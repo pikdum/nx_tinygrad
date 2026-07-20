@@ -85,7 +85,7 @@ def test_validation_rejects_unknown_op():
         "version": 1,
         "inputs": [{"id": 0, "index": 0, "shape": [2], "dtype": "f32"}],
         "constants": [],
-        "nodes": [{"id": 1, "op": "fft", "inputs": [0], "attrs": {}, "shape": [2], "dtype": "f32"}],
+        "nodes": [{"id": 1, "op": "no_such_op", "inputs": [0], "attrs": {}, "shape": [2], "dtype": "f32"}],
         "outputs": [{"node": 1, "shape": [2], "dtype": "f32"}],
     }
     with pytest.raises(GraphValidationError):

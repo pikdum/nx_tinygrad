@@ -15,6 +15,8 @@ defmodule NxTinygrad.Dtype do
     {:f, 32} => "f32",
     {:f, 64} => "f64",
     {:bf, 16} => "bf16",
+    {:c, 64} => "c64",
+    {:c, 128} => "c128",
     {:s, 8} => "s8",
     {:s, 16} => "s16",
     {:s, 32} => "s32",
@@ -29,7 +31,7 @@ defmodule NxTinygrad.Dtype do
 
   # Types the worker handles today (bf16 rides a uint16 transport carrier and is
   # bitcast to tinygrad bfloat16 in the worker).
-  @supported_names ~w(f16 f32 f64 bf16 s8 s16 s32 s64 u8 u16 u32 u64)
+  @supported_names ~w(f16 f32 f64 bf16 c64 c128 s8 s16 s32 s64 u8 u16 u32 u64)
 
   @doc "Stable wire name for an Nx type, or `{:error, reason}`."
   @spec to_name(Nx.Type.t()) :: {:ok, String.t()} | {:error, String.t()}

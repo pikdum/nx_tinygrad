@@ -20,6 +20,8 @@ _NUMPY = {
     "f16": np.float16,
     "f64": np.float64,
     "bf16": np.uint16,
+    "c64": np.complex64,
+    "c128": np.complex128,
     "s8": np.int8,
     "s16": np.int16,
     "s32": np.int32,
@@ -65,10 +67,29 @@ def tinygrad_dtype(name: str):
         raise UnsupportedDtype(f"unsupported dtype: {name!r}") from None
 
 
+_COMPLEX_COMPONENT = {"c64": "f32", "c128": "f64"}
+
+
+def is_complex(name: str) -> bool:
+    return name in _COMPLEX_COMPONENT
+
+
+def component_dtype(name: str) -> str:
+    """The real float dtype backing a complex wire name (c64 -> f32)."""
+    return _COMPLEX_COMPONENT[name]
+
+
 def wire_tensor(arr, name: str, device):
     """Build a tinygrad tensor of wire dtype `name` from a numpy array whose
-    dtype is the transport carrier (uint16 for bf16, which is then bitcast)."""
+    dtype is the transport carrier. bf16 rides uint16 (then bitcast); complex
+    types are stored as a real float tensor with a trailing [real, imag] axis."""
+    import numpy as np
     from tinygrad import Tensor
+
+    if is_complex(name):
+        comp = numpy_dtype(component_dtype(name))
+        stacked = np.stack([arr.real.astype(comp), arr.imag.astype(comp)], axis=-1)
+        return Tensor(np.ascontiguousarray(stacked), device=device)
 
     t = Tensor(arr, device=device)
     if name == "bf16":
@@ -77,12 +98,22 @@ def wire_tensor(arr, name: str, device):
 
 
 def wire_numpy(tensor, name: str):
-    """Convert a tinygrad tensor to a numpy array in the transport carrier
-    (bf16 is bitcast to uint16 first, since numpy has no bfloat16)."""
+    """Convert a tinygrad tensor to a numpy array in the transport carrier.
+    bf16 is bitcast to uint16; a complex tensor's trailing [real, imag] axis is
+    folded back into a numpy complex array."""
     if name == "bf16":
         from tinygrad import dtypes
 
         tensor = tensor.bitcast(dtypes.uint16)
+        return tensor.numpy()
+
+    if is_complex(name):
+        import numpy as np
+
+        arr = tensor.numpy()
+        out = arr[..., 0].astype(numpy_dtype(name)) + 1j * arr[..., 1]
+        return np.ascontiguousarray(out.astype(numpy_dtype(name)))
+
     return tensor.numpy()
 
 

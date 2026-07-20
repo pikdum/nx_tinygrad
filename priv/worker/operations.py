@@ -14,12 +14,158 @@ import math
 
 from tinygrad import Tensor, dtypes
 
-from dtype import tinygrad_dtype
+from dtype import component_dtype, is_complex, tinygrad_dtype
 from errors import UnsupportedOperation
 
 
 def _cast(t: Tensor, node) -> Tensor:
     return t.cast(tinygrad_dtype(node["dtype"]))
+
+
+# -- complex numbers ----------------------------------------------------------
+#
+# tinygrad has no complex dtype, so a complex tensor of logical shape S is held
+# as a real float tensor of shape S + [2] (last axis = [real, imag]), wrapped in
+# Cx so it is self-identifying as it flows through the executor env.
+
+
+class Cx:
+    __slots__ = ("t",)
+
+    def __init__(self, t: Tensor):
+        self.t = t  # float tensor of shape S + [2]
+
+
+def _re(t: Tensor) -> Tensor:
+    return t[..., 0]
+
+
+def _im(t: Tensor) -> Tensor:
+    return t[..., 1]
+
+
+def _cxt(re: Tensor, im: Tensor) -> Tensor:
+    return re.reshape(tuple(re.shape) + (1,)).cat(im.reshape(tuple(im.shape) + (1,)), dim=-1)
+
+
+def _promote(x) -> Tensor:
+    # A real operand in a complex expression becomes (x, 0).
+    if isinstance(x, Cx):
+        return x.t
+    return _cxt(x, x * 0)
+
+
+def _dft(t: Tensor, n: int, axis: int, inverse: bool) -> Tensor:
+    # Discrete Fourier transform along `axis` via a real cos/sin matrix (O(n^2),
+    # always correct). t is a complex S+[2] tensor; returns a complex S+[2].
+    k = Tensor.arange(n).reshape((n, 1))
+    m = Tensor.arange(n).reshape((1, n))
+    theta = (2.0 * math.pi / n) * (k * m).cast(dtypes.float32)
+    wr = theta.cos()
+    wi = (theta if inverse else -theta).sin()  # sign flips for inverse
+
+    xr, xi = _re(t), _im(t)
+    # Move the fft axis to the last logical position, contract with W, move back.
+    rank = len(xr.shape)
+    perm = [a for a in range(rank) if a != axis] + [axis]
+    inv = [0] * rank
+    for pos, a in enumerate(perm):
+        inv[a] = pos
+    xr, xi = xr.permute(tuple(perm)), xi.permute(tuple(perm))
+
+    # X[..., k] = sum_m x[..., m] * W[k, m]  ->  x @ W^T
+    wr_t, wi_t = wr.transpose(0, 1), wi.transpose(0, 1)
+    yr = xr.matmul(wr_t) - xi.matmul(wi_t)
+    yi = xr.matmul(wi_t) + xi.matmul(wr_t)
+    if inverse:
+        yr, yi = yr * (1.0 / n), yi * (1.0 / n)
+
+    yr, yi = yr.permute(tuple(inv)), yi.permute(tuple(inv))
+    return _cxt(yr, yi)
+
+
+def _apply_complex(node, ins):
+    op = node["op"]
+    shape = node["shape"]
+    rank = len(shape)
+
+    if op == "add":
+        return Cx(_promote(ins[0]) + _promote(ins[1]))
+    if op == "subtract":
+        return Cx(_promote(ins[0]) - _promote(ins[1]))
+    if op == "negate":
+        return Cx(-_promote(ins[0]))
+    if op == "multiply":
+        a, b = _promote(ins[0]), _promote(ins[1])
+        return Cx(_cxt(_re(a) * _re(b) - _im(a) * _im(b), _re(a) * _im(b) + _im(a) * _re(b)))
+    if op == "divide":
+        a, b = _promote(ins[0]), _promote(ins[1])
+        d = _re(b) * _re(b) + _im(b) * _im(b)
+        return Cx(_cxt((_re(a) * _re(b) + _im(a) * _im(b)) / d, (_im(a) * _re(b) - _re(a) * _im(b)) / d))
+    if op == "conjugate":
+        a = _promote(ins[0])
+        return Cx(_cxt(_re(a), -_im(a)))
+    if op == "exp":
+        a = _promote(ins[0])
+        e = _re(a).exp()
+        return Cx(_cxt(e * _im(a).cos(), e * _im(a).sin()))
+    if op == "real":
+        return _re(_promote(ins[0]))
+    if op == "imag":
+        return _im(_promote(ins[0]))
+    if op == "abs":
+        a = _promote(ins[0])
+        return (_re(a) * _re(a) + _im(a) * _im(a)).sqrt()
+    if op == "as_type":
+        return Cx(_promote(ins[0]))
+    if op in ("reshape", "squeeze"):
+        return Cx(_promote(ins[0]).reshape(tuple(shape) + (2,)))
+    if op == "transpose":
+        axes = node["attrs"]["axes"]
+        return Cx(_promote(ins[0]).permute(tuple(axes) + (rank,)))
+    if op == "reverse":
+        return Cx(_promote(ins[0]).flip(tuple(node["attrs"]["axes"])))
+    if op == "broadcast":
+        out = node["attrs"]["shape"]
+        axes = node["attrs"]["axes"]
+        a = _promote(ins[0])
+        inter = [1] * len(out) + [2]
+        for src_dim, out_dim in enumerate(axes):
+            inter[out_dim] = a.shape[src_dim]
+        return Cx(a.reshape(tuple(inter)).expand(tuple(out) + (2,)))
+    if op == "slice":
+        a = _promote(ins[0])
+        starts = [s["static"] for s in node["attrs"]["starts"]]
+        lengths, strides = node["attrs"]["lengths"], node["attrs"]["strides"]
+        idx = tuple(slice(s, s + l, st) for s, l, st in zip(starts, lengths, strides)) + (slice(None),)
+        return Cx(a[idx])
+    if op == "concatenate":
+        parts = [_promote(x) for x in ins]
+        return Cx(parts[0].cat(*parts[1:], dim=node["attrs"]["axis"]))
+    if op in ("sum", "reduce_max", "reduce_min"):
+        a = _promote(ins[0])
+        axes = tuple(node["attrs"]["axes"])
+        keep = node["attrs"]["keep_axes"]
+        red = _re(a).sum(axis=axes, keepdim=keep), _im(a).sum(axis=axes, keepdim=keep)
+        return Cx(_cxt(*red))
+    if op == "dot":
+        a, b = _promote(ins[0]), _promote(ins[1])
+        attrs = node["attrs"]
+        ca, cb, ba, bb = attrs["contract_left"], attrs["contract_right"], attrs["batch_left"], attrs["batch_right"]
+        ar, ai, br, bi = _re(a), _im(a), _re(b), _im(b)
+        re = _einsum_dot(ar, br, ca, cb, ba, bb) - _einsum_dot(ai, bi, ca, cb, ba, bb)
+        im = _einsum_dot(ar, bi, ca, cb, ba, bb) + _einsum_dot(ai, br, ca, cb, ba, bb)
+        return Cx(_cxt(re, im))
+    if op in ("fft", "ifft"):
+        return Cx(_dft(_promote(ins[0]), node["attrs"]["length"], node["attrs"]["axis"], op == "ifft"))
+    if op == "iota":
+        return Cx(_promote(_iota(node)))
+    if op == "select":
+        cond = ins[0].cast(dtypes.bool)
+        a, b = _promote(ins[1]), _promote(ins[2])
+        return Cx(cond.reshape(tuple(cond.shape) + (1,)).where(a, b))
+
+    raise UnsupportedOperation(f"complex op not supported: {op}", details={"op": op})
 
 
 def _in(node, env, i=0):
@@ -679,6 +825,13 @@ def _einsum_dot(a, b, ca, cb, ba, bb):
 def apply(node, env) -> Tensor:
     op = node["op"]
 
+    # Complex path: a complex output, or any complex (Cx) operand.
+    if is_complex(node["dtype"]) or any(isinstance(env[i], Cx) for i in node["inputs"]):
+        result = _apply_complex(node, [env[i] for i in node["inputs"]])
+        if isinstance(result, Cx):
+            return Cx(result.t.cast(tinygrad_dtype(component_dtype(node["dtype"]))))
+        return _cast(result, node)
+
     if op in _UNARY:
         result = _UNARY[op](_in(node, env))
     elif op in _BINARY:
@@ -762,4 +915,5 @@ SUPPORTED_OPS = (
     | {"pad", "sort", "argsort", "gather", "iota", "clip", "stack", "eye"}
     | {"put_slice", "indexed_add", "indexed_put"}
     | {"while"}
+    | {"fft", "ifft", "real", "imag"}
 )
