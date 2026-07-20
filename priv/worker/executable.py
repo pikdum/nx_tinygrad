@@ -102,17 +102,27 @@ class Executable:
         # replay speed). This is a no-op for already-contiguous outputs and lets
         # immutable_copy do a raw buffer transfer safely even for outputs that
         # would otherwise be strided views (e.g. gradients from dot/transpose).
-        outs = [env[out["node"]].contiguous() for out in self.output_specs]
+        outs = []
+        for out in self.output_specs:
+            tensor = env[out["node"]]
+            contiguous = tensor.contiguous()
+            # contiguous() is a no-op for an already-contiguous input or view
+            # such as reshape. TinyJit would then retain the capture-time input
+            # buffer as an output instead of rebinding it on replay.
+            if contiguous.uop is tensor.uop:
+                contiguous = tensor.clone()
+            outs.append(contiguous)
         if outs:
             outs[0].realize(*outs[1:])
         return outs
 
-    def _dummy(self, spec) -> Tensor:
-        return (
-            Tensor.zeros(tuple(spec["shape"]), dtype=tinygrad_dtype(spec["dtype"]), device=self.device)
-            .contiguous()
-            .realize()
-        )
+    def _dummy(self, spec, seed: int) -> Tensor:
+        shape = tuple(spec["shape"])
+        size = math.prod(shape)
+        arr = (np.arange(size, dtype=numpy_dtype(spec["dtype"])) + seed).reshape(shape)
+        # clone() forces scalars and other constant-foldable inputs to own real
+        # buffers, as required by TinyJit input replacement.
+        return Tensor(arr, device=self.device).clone().realize()
 
     def _capture(self, validate: bool) -> None:
         # A graph with no inputs is a pure constant computation; TinyJit has
@@ -121,16 +131,14 @@ class Executable:
             return
 
         self._jit = TinyJit(self._graph_fn)
-        rounds = 3 if validate else 2
-        outs = None
-        reference = None
+        outs = self._jit(*[self._dummy(spec, 1) for spec in self.input_specs])
+        outs = self._jit(*[self._dummy(spec, 2) for spec in self.input_specs])
 
-        for round_index in range(rounds):
-            outs = self._jit(*[self._dummy(spec) for spec in self.input_specs])
-            if validate and round_index == 0:
-                # Copy the eager result immediately: later JIT calls may reuse or
-                # mutate captured buffers.
-                reference = [np.ascontiguousarray(out.numpy()).copy() for out in outs]
+        if validate:
+            validation_inputs = [self._dummy(spec, 3) for spec in self.input_specs]
+            expected = self._graph_fn(*validation_inputs)
+            reference = [np.ascontiguousarray(out.numpy()).copy() for out in expected]
+            outs = self._jit(*validation_inputs)
 
         if len(outs) != len(self.output_specs):
             raise CompileError(f"captured {len(outs)} outputs, expected {len(self.output_specs)}")

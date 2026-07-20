@@ -5,8 +5,8 @@ Runs as an OS process behind an Erlang Port. Reads framed protocol requests from
 stdin, dispatches them against tinygrad, and writes framed responses to stdout.
 stdout carries protocol frames only; all logging goes to stderr.
 
-The device environment (AMD_LLVM / AMD_IFACE / DEV) is configured before tinygrad
-is imported, because tinygrad reads those as ContextVars at import time.
+The DEV device string is configured before tinygrad is imported because tinygrad
+reads it as a ContextVar at import time.
 """
 from __future__ import annotations
 
@@ -158,7 +158,10 @@ class Handler:
                     .reshape(spec["shape"])
                     .copy()
                 )
-                input_tensors.append(self.Tensor(arr, device=self.tg_device).realize())
+                tensor = self.Tensor(arr, device=self.tg_device)
+                if arr.shape == ():
+                    tensor = tensor.clone()
+                input_tensors.append(tensor.realize())
             else:
                 raise ProtocolError(f"unknown input kind: {kind!r}")
 
@@ -199,7 +202,10 @@ class Handler:
         shape = tuple(args["shape"])
         dtype = args["dtype"]
         arr = self.np.frombuffer(blobs[0], dtype=numpy_dtype(dtype)).reshape(shape).copy()
-        tensor = self.Tensor(arr, device=self.tg_device).realize()
+        tensor = self.Tensor(arr, device=self.tg_device)
+        if arr.shape == ():
+            tensor = tensor.clone()
+        tensor = tensor.realize()
         nbytes = arr.nbytes
         buffer_id = self.registry.put(tensor, shape, dtype, nbytes)
         self.stats.upload_bytes += nbytes
