@@ -110,14 +110,20 @@ Supported: `c64`/`c128` dtypes, complex `add`/`subtract`/`multiply`/`divide`/
 `negate`, `conjugate`, `real`, `imag`, `abs`, `exp`, `as_type`, the shape ops,
 `sum`, `dot`, `select`, and `fft`/`ifft` (a real cos/sin DFT matmul).
 
+## Linear algebra (composites)
+
+`Nx.LinAlg` composites lower through the primitive set and control flow:
+`cholesky`, `qr`, `lu`, `svd`, `eigh`, `triangular_solve`, `determinant`. (svd
+singular values / eigh eigenvalues match Nx; U/V are sign-ambiguous as usual.)
+
+`reduce` and `window_reduce` with an arbitrary accumulator function lower by
+folding the traced reducer body over the (statically unrolled) axes/windows.
+
 ## Not yet supported
 
-These raise a detailed compile error, grouped by the underlying reason:
+Only these edges remain, all outside the core defn op surface:
 
-- **`reduce` / `window_reduce` with a custom accumulator function** — arbitrary
-  user reductions have no general tinygrad mapping (standard associative
-  reductions are already covered by `sum`/`product`/`reduce_max`/`reduce_min`
-  and the `window_*` ops).
-- **`qr`, `lu`, `svd`** — niche classical-ML linalg with complex internal
-  decompositions (`cholesky` and `triangular_solve` work).
-- `conv` with `batch_group_size` > 1.
+- Eager (non-`defn`) backend ops that raise by design: `to_batched` on a device
+  tensor (batch on the host first), and pointer interop (`from_pointer` /
+  `to_pointer`).
+- `conv` with `batch_group_size` > 1, and `window_reduce` with non-zero padding.

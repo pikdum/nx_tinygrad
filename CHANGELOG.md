@@ -25,6 +25,10 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
   as paired reals (`S+[2]`); covers complex arithmetic, `conjugate`, `real`,
   `imag`, `abs`, `exp`, shape ops, `dot`, and `fft`/`ifft` (DFT matmul).
 - **`triangular_solve`** — unrolled forward/back substitution.
+- **Full `Nx.LinAlg` family** — `cholesky`, `qr`, `lu`, `svd`, `eigh`,
+  `determinant` (via while/cond/dynamic-put_slice + tuple projection).
+- **Custom-function `reduce` and `window_reduce`** — fold the traced reducer body
+  over the (statically unrolled) reduced axes / windows.
 - **Dynamic slice**: `slice` with runtime (tensor) start indices.
 - Elementwise: `erf_inv`, `count_leading_zeros`, `population_count`,
   `conjugate` (real), `bitcast`.
