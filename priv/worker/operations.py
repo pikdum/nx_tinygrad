@@ -646,4 +646,5 @@ SUPPORTED_OPS = (
     | {"reshape", "squeeze", "broadcast", "transpose", "reverse", "concatenate", "slice", "as_type", "bitcast", "dot", "conv"}
     | {"pad", "sort", "argsort", "gather", "iota", "clip", "stack", "eye"}
     | {"put_slice", "indexed_add", "indexed_put"}
+    | {"while"}
 )

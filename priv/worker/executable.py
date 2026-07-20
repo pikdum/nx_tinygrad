@@ -82,22 +82,51 @@ class Executable:
         self.id = exec_id
         self.graph = graph
         self.device = device
+        self.blobs = blobs
         self.input_specs = graph["inputs"]
         self.output_specs = graph["outputs"]
         self.constants = {c["id"]: _make_constant(c, blobs, device) for c in graph["constants"]}
         self.duplicate_input_clones = 0
         self.kernel_count = 0
         self._jit = None
+        # A data-dependent `while` can't be JIT-captured (its trip count varies),
+        # so such graphs run eagerly node-by-node instead of via TinyJit replay.
+        self._has_while = any(node["op"] == "while" for node in graph["nodes"])
         self._capture(validate_capture)
 
     # -- graph evaluation ---------------------------------------------------
+
+    def _eval_nodes(self, nodes, env):
+        for node in nodes:
+            if node["op"] == "while":
+                for out, result in zip(node["outputs"], self._run_while(node, env)):
+                    env[out["id"]] = result
+            else:
+                env[node["id"]] = operations.apply(node, env)
+
+    def _interpret(self, subgraph, params):
+        # Evaluate a self-contained sub-graph with its loop-var parameters bound
+        # to `params` (by input index). Constants may index the shared blob list.
+        env = {c["id"]: _make_constant(c, self.blobs, self.device) for c in subgraph["constants"]}
+        for inp in subgraph["inputs"]:
+            env[inp["id"]] = params[inp["index"]]
+        self._eval_nodes(subgraph["nodes"], env)
+        return [env[o["node"]] for o in subgraph["outputs"]]
+
+    def _run_while(self, node, env):
+        state = [env[i].realize() for i in node["inputs"]]
+        cond, body = node["attrs"]["cond"], node["attrs"]["body"]
+        # Read the scalar condition each iteration (realizes it), then step the
+        # body, realizing to keep the lazy graph bounded.
+        while bool(self._interpret(cond, state)[0].item()):
+            state = [t.realize() for t in self._interpret(body, state)]
+        return state
 
     def _graph_fn(self, *inputs):
         env = dict(self.constants)
         for spec, tensor in zip(self.input_specs, inputs):
             env[spec["id"]] = tensor
-        for node in self.graph["nodes"]:
-            env[node["id"]] = operations.apply(node, env)
+        self._eval_nodes(self.graph["nodes"], env)
         # Force row-major contiguous outputs inside the captured graph (runs at
         # replay speed). This is a no-op for already-contiguous outputs and lets
         # immutable_copy do a raw buffer transfer safely even for outputs that
@@ -125,9 +154,9 @@ class Executable:
         return Tensor(arr, device=self.device).clone().realize()
 
     def _capture(self, validate: bool) -> None:
-        # A graph with no inputs is a pure constant computation; TinyJit has
-        # nothing to replay, so evaluate it directly.
-        if not self.input_specs:
+        # A graph with no inputs is a pure constant computation, and a graph with
+        # a data-dependent while can't be captured; both run eagerly via run().
+        if not self.input_specs or self._has_while:
             return
 
         self._jit = TinyJit(self._graph_fn)

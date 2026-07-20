@@ -11,6 +11,29 @@ defmodule NxTinygrad.CondGraphs do
   end
 end
 
+defmodule NxTinygrad.WhileGraphs do
+  @moduledoc false
+  import Nx.Defn
+
+  defn count_up(t) do
+    {r, _i} =
+      while {acc = t, i = 0}, i < 5 do
+        {acc + 1.0, i + 1}
+      end
+
+    r
+  end
+
+  defn grow_until(t) do
+    {r, _} =
+      while {acc = t, _c = 0}, Nx.less(Nx.sum(acc), 100.0) do
+        {acc * 1.5, 0}
+      end
+
+    r
+  end
+end
+
 defmodule NxTinygrad.DifferentialTest do
   @moduledoc "Broad differential coverage against Nx.BinaryBackend."
   use ExUnit.Case, async: false
@@ -412,6 +435,16 @@ defmodule NxTinygrad.DifferentialTest do
     fun = fn t -> Nx.erf_inv(t) end
 
     assert_close(NxTinygrad.jit(fun).(x), fun.(x), atol: 1.0e-4, rtol: 1.0e-3)
+  end
+
+  test "while loops (fixed count and data-dependent) match Nx" do
+    x = Nx.tensor([10.0, 20.0, 30.0], type: :f32)
+    assert_close(NxTinygrad.jit(&NxTinygrad.WhileGraphs.count_up/1).(x), NxTinygrad.WhileGraphs.count_up(x))
+
+    assert_close(
+      NxTinygrad.jit(&NxTinygrad.WhileGraphs.grow_until/1).(x),
+      NxTinygrad.WhileGraphs.grow_until(x)
+    )
   end
 
   test "cond lowers to predicated selects across all branches" do

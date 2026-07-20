@@ -375,6 +375,52 @@ defmodule NxTinygrad.Lowering do
     end
   end
 
+  # while: a data-dependent loop. We lower the initial loop vars in the outer
+  # graph, lower the condition and body as isolated sub-graphs (their loop-var
+  # parameters become sub-graph inputs), and emit a multi-output `while` node the
+  # worker runs as an eager Python loop. The tuple of final loop-var ids is what
+  # `elem` projects.
+  defp lower_tuple(%T{data: %Expr{op: :while, args: [init, _params, cond, body], id: ref}}, state) do
+    case Map.fetch(state.tuples, ref) do
+      {:ok, ids} ->
+        {ids, state}
+
+      :error ->
+        init_list = Tuple.to_list(init)
+        body_list = Tuple.to_list(body)
+
+        {init_ids, state} = lower_children(init_list, state)
+        {cond_sub, state} = lower_isolated([cond], state)
+        {body_sub, state} = lower_isolated(body_list, state)
+
+        {output_specs, state} =
+          Enum.map_reduce(body_list, state, fn expr, st ->
+            id = st.counter
+            {%{"id" => id, "shape" => shape_of(expr), "dtype" => dtype_of(expr)}, %{st | counter: id + 1}}
+          end)
+
+        output_ids = Enum.map(output_specs, & &1["id"])
+
+        node = %{
+          "id" => hd(output_ids),
+          "op" => "while",
+          "inputs" => init_ids,
+          "attrs" => %{"cond" => cond_sub, "body" => body_sub},
+          "outputs" => output_specs
+        }
+
+        {output_ids, %{state | nodes: [node | state.nodes], tuples: Map.put(state.tuples, ref, output_ids)}}
+    end
+  end
+
+  defp lower_tuple(%T{data: %Expr{op: op}} = t, _state) do
+    raise NxTinygrad.CompileError,
+      message: "elem projection from unsupported tuple source: #{op}",
+      operation: op,
+      output_spec: %{shape: shape_of(t), dtype: safe_dtype(t)},
+      hint: "tuple projection supports tuple-valued blocks and while loops"
+  end
+
   # Bind a block's inputs to its default expression's parameters, then lower each
   # of the given default outputs (single- or multi-output) under that binding.
   defp lower_block(inputs, outputs, state) do
@@ -383,6 +429,38 @@ defmodule NxTinygrad.Lowering do
     saved = state.param_bind
     {ids, state} = lower_children(outputs, %{state | param_bind: bind})
     {ids, %{state | param_bind: saved}}
+  end
+
+  # Lower a set of output expressions into a self-contained sub-graph with its own
+  # id space. Loop-var parameters become sub-graph inputs (indexed by position).
+  # Inline-literal blobs are shared with the parent's flat blob list.
+  defp lower_isolated(outputs, state) do
+    sub = %{
+      ids: %{},
+      counter: 0,
+      inputs: [],
+      constants: [],
+      nodes: [],
+      blobs: state.blobs,
+      blob_count: state.blob_count,
+      param_bind: nil,
+      tuples: %{}
+    }
+
+    {out_specs, sub} =
+      Enum.map_reduce(outputs, sub, fn expr, s ->
+        {id, s} = lower(expr, s)
+        {%{"node" => id, "shape" => shape_of(expr), "dtype" => dtype_of(expr)}, s}
+      end)
+
+    subgraph = %{
+      "inputs" => Enum.reverse(sub.inputs),
+      "constants" => Enum.reverse(sub.constants),
+      "nodes" => Enum.reverse(sub.nodes),
+      "outputs" => out_specs
+    }
+
+    {subgraph, %{state | blobs: sub.blobs, blob_count: sub.blob_count}}
   end
 
   defp add_node(state, %T{data: %Expr{id: ref}} = t, op, input_ids, attrs) do

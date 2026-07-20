@@ -32,6 +32,20 @@ def _valid_shape(shape):
     )
 
 
+def _validate_subgraph(sub) -> None:
+    # Lightweight structural + allowlist check for a while condition/body graph.
+    _check(isinstance(sub, dict), "while sub-graph must be an object")
+    for key in ("inputs", "constants", "nodes", "outputs"):
+        _check(isinstance(sub.get(key), list), f"while sub-graph.{key} must be a list")
+    _check(len(sub["outputs"]) >= 1, "while sub-graph must have at least one output")
+    for node in sub["nodes"]:
+        op = node.get("op")
+        _check(op in SUPPORTED_OPS, f"unsupported Nx operation: {op}", op=op)
+        if op == "while":
+            _validate_subgraph(node["attrs"].get("cond"))
+            _validate_subgraph(node["attrs"].get("body"))
+
+
 def validate(graph: dict, blobs: list[bytes], max_nodes: int = MAX_NODES) -> None:
     _check(isinstance(graph, dict), "graph must be an object")
     _check(graph.get("version") == GRAPH_VERSION, f"unsupported graph version: {graph.get('version')}")
@@ -78,15 +92,29 @@ def validate(graph: dict, blobs: list[bytes], max_nodes: int = MAX_NODES) -> Non
         specs[const["id"]] = (const["shape"], const["dtype"])
 
     for node in graph["nodes"]:
-        define("node", node.get("id"))
         _check(node.get("op") in SUPPORTED_OPS, f"unsupported Nx operation: {node.get('op')}", op=node.get("op"))
         _check(isinstance(node.get("inputs"), list), "node inputs must be a list")
         for ref in node["inputs"]:
-            _check(ref in defined, f"node {node['id']} references undefined id {ref}")
+            _check(ref in defined, f"node references undefined id {ref}")
         _check(isinstance(node.get("attrs"), dict), "node attrs must be an object")
-        _check(_valid_shape(node.get("shape")), "invalid node shape", shape=node.get("shape"))
-        _check(is_supported(node.get("dtype")), f"unsupported node dtype: {node.get('dtype')}")
-        specs[node["id"]] = (node["shape"], node["dtype"])
+
+        if node["op"] == "while":
+            # A while node defines one id per loop-var output and carries two
+            # pure sub-graphs (condition + body).
+            outs = node.get("outputs")
+            _check(isinstance(outs, list) and len(outs) >= 1, "while node must have outputs")
+            for out in outs:
+                define("while output", out.get("id"))
+                _check(_valid_shape(out.get("shape")), "invalid while output shape", shape=out.get("shape"))
+                _check(is_supported(out.get("dtype")), f"unsupported while output dtype: {out.get('dtype')}")
+                specs[out["id"]] = (out["shape"], out["dtype"])
+            _validate_subgraph(node["attrs"].get("cond"))
+            _validate_subgraph(node["attrs"].get("body"))
+        else:
+            define("node", node.get("id"))
+            _check(_valid_shape(node.get("shape")), "invalid node shape", shape=node.get("shape"))
+            _check(is_supported(node.get("dtype")), f"unsupported node dtype: {node.get('dtype')}")
+            specs[node["id"]] = (node["shape"], node["dtype"])
 
     _check(len(graph["outputs"]) >= 1, "graph must have at least one output")
     for out in graph["outputs"]:
