@@ -459,34 +459,61 @@ def _concatenate(node, env):
     return tensors[0].cat(*tensors[1:], dim=axis) if len(tensors) > 1 else tensors[0]
 
 
+def _dilate(x, dilation):
+    # Insert (d-1) zeros between elements along each spatial axis (axes 2..) —
+    # i.e. input dilation, as used by conv's gradient w.r.t. its input.
+    for i, d in enumerate(dilation):
+        if d <= 1:
+            continue
+        axis = 2 + i
+        shape = list(x.shape)
+        n = shape[axis]
+        x = x.reshape(tuple(shape[: axis + 1] + [1] + shape[axis + 1 :]))
+        pad = [(0, 0)] * len(x.shape)
+        pad[axis + 1] = (0, d - 1)
+        x = x.pad(tuple(pad))
+        x = x.reshape(tuple(shape[:axis] + [n * d] + shape[axis + 1 :]))
+        idx = tuple(slice(0, (n - 1) * d + 1) if j == axis else slice(None) for j in range(len(x.shape)))
+        x = x[idx]
+    return x
+
+
 def _conv(node, env):
-    # Nx.conv with default (identity) layout maps onto tinygrad conv2d, which is
-    # general over spatial rank. We pre-pad the spatial dims ourselves so Nx's
-    # asymmetric per-edge padding is honored, then convolve with padding=0.
+    # Nx.conv onto tinygrad conv2d (general over spatial rank). We transpose the
+    # operands into canonical [batch, channels, *spatial] / [out, in, *spatial]
+    # layout, honor Nx's asymmetric padding and input dilation ourselves, then
+    # transpose the output back out of canonical layout.
     x = _in(node, env, 0)
     w = _in(node, env, 1)
     a = node["attrs"]
-    rank = len(x.shape)
-    ident = list(range(rank))
 
-    if a["input_permutation"] != ident or a["kernel_permutation"] != ident or a["output_permutation"] != ident:
-        raise UnsupportedOperation("conv with non-default tensor permutations is not supported")
     if a["batch_group_size"] != 1:
         raise UnsupportedOperation("conv batch_group_size != 1 is not supported")
+
+    x = x.permute(tuple(a["input_permutation"]))
+    w = w.permute(tuple(a["kernel_permutation"]))
+
     if any(d != 1 for d in a["input_dilation"]):
-        raise UnsupportedOperation("conv input dilation (transposed conv) is not supported")
+        x = _dilate(x, a["input_dilation"])
 
     pad_config = [(0, 0), (0, 0)] + [(lo, hi) for (lo, hi) in a["padding"]]
     if any(lo or hi for (lo, hi) in pad_config):
         x = x.pad(tuple(pad_config))
 
-    return x.conv2d(
+    out = x.conv2d(
         w,
         groups=a["feature_group_size"],
         stride=tuple(a["strides"]),
         dilation=tuple(a["kernel_dilation"]),
         padding=0,
     )
+
+    # out is canonical [batch, out_channels, *spatial]; undo output_permutation.
+    op = a["output_permutation"]
+    inverse = [0] * len(op)
+    for pos, axis in enumerate(op):
+        inverse[axis] = pos
+    return out.permute(tuple(inverse))
 
 
 def _dot(node, env):
@@ -596,6 +623,9 @@ def apply(node, env) -> Tensor:
         result = _eye(node)
     elif op == "as_type":
         result = _in(node, env)
+    elif op == "bitcast":
+        # Reinterpret the bits as the target dtype (no value conversion).
+        result = _in(node, env).bitcast(tinygrad_dtype(node["dtype"]))
     elif op == "dot":
         result = _dot(node, env)
     elif op == "conv":
@@ -613,7 +643,7 @@ SUPPORTED_OPS = (
     | {"select", "sum", "product", "reduce_max", "reduce_min", "all", "any", "argmax", "argmin"}
     | {"window_sum", "window_max", "window_min", "window_product"}
     | {"count_leading_zeros", "population_count"}
-    | {"reshape", "squeeze", "broadcast", "transpose", "reverse", "concatenate", "slice", "as_type", "dot", "conv"}
+    | {"reshape", "squeeze", "broadcast", "transpose", "reverse", "concatenate", "slice", "as_type", "bitcast", "dot", "conv"}
     | {"pad", "sort", "argsort", "gather", "iota", "clip", "stack", "eye"}
     | {"put_slice", "indexed_add", "indexed_put"}
 )

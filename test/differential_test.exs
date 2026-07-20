@@ -435,6 +435,35 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(fun).(x), fun.(x), atol: 1.0e-5, rtol: 1.0e-4)
   end
 
+  test "conv gradients (wrt kernel and input) match Nx" do
+    {input, _} = Nx.Random.normal(Nx.Random.key(7), shape: {2, 3, 7, 7}, type: :f32)
+    {kernel, _} = Nx.Random.normal(Nx.Random.key(8), shape: {4, 3, 3, 3}, type: :f32)
+
+    gk = fn i, k ->
+      Nx.Defn.value_and_grad(k, fn k -> Nx.sum(Nx.conv(i, k, strides: [2, 2], padding: [{1, 1}, {1, 1}])) end)
+    end
+
+    gi = fn i, k ->
+      Nx.Defn.value_and_grad(i, fn i -> Nx.sum(Nx.conv(i, k, strides: [2, 2], padding: [{1, 1}, {1, 1}])) end)
+    end
+
+    args = [input, kernel]
+    assert_close(apply(NxTinygrad.jit(gk), args), apply(gk, args), atol: 1.0e-3, rtol: 1.0e-3)
+    assert_close(apply(NxTinygrad.jit(gi), args), apply(gi, args), atol: 1.0e-3, rtol: 1.0e-3)
+  end
+
+  test "bitcast reinterprets bits without value conversion" do
+    x = Nx.tensor([1.0, -2.0, 3.5, 0.0], type: :f32)
+    fun = fn t -> {Nx.bitcast(t, :s32), Nx.bitcast(Nx.bitcast(t, :s32), :f32)} end
+
+    actual = NxTinygrad.jit(fun, output: :host).(x)
+    expected = fun.(x)
+
+    for {a, e} <- Enum.zip(Tuple.to_list(actual), Tuple.to_list(expected)) do
+      assert Nx.to_flat_list(a) == Nx.to_flat_list(e)
+    end
+  end
+
   test "put_slice, indexed_put, and indexed_add match (incl. duplicate indices)" do
     t = Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], type: :f32)
     block = Nx.tensor([[90.0], [91.0]], type: :f32)

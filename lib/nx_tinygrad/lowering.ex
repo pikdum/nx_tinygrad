@@ -305,6 +305,11 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, "as_type", [aid], %{})
   end
 
+  defp lower_new(%T{data: %Expr{op: :bitcast, args: [a]}} = t, state) do
+    {[aid], state} = lower_children([a], state)
+    add_node(state, t, "bitcast", [aid], %{})
+  end
+
   defp lower_new(%T{data: %Expr{op: :dot, args: [a, ca, ba, b, cb, bb]}} = t, state) do
     {[aid, bid], state} = lower_children([a, b], state)
 
