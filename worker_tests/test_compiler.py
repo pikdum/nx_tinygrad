@@ -2,8 +2,9 @@ import numpy as np
 import pytest
 from tinygrad import Tensor
 
+import executable as executable_mod
 from compiler import compile_graph
-from errors import GraphValidationError
+from errors import CompileError, GraphValidationError
 
 
 def _T(data):
@@ -82,6 +83,35 @@ def test_tinyjit_capture_and_replay():
     assert np.allclose(o1.numpy(), [3, 8])
     [o2] = ex.run([_T([10, 20]), _T([2, 2])])
     assert np.allclose(o2.numpy(), [20, 40])
+
+
+def test_capture_validation_compares_replayed_values(monkeypatch):
+    real_tinyjit = executable_mod.TinyJit
+
+    class CorruptingTinyJit:
+        def __init__(self, fn):
+            self.inner = real_tinyjit(fn)
+            self.calls = 0
+
+        def __call__(self, *inputs):
+            self.calls += 1
+            outputs = self.inner(*inputs)
+            if self.calls == 3:
+                outputs[0] = outputs[0] + 1
+            return outputs
+
+    monkeypatch.setattr(executable_mod, "TinyJit", CorruptingTinyJit)
+
+    graph = {
+        "version": 1,
+        "inputs": [{"id": 0, "index": 0, "shape": [2], "dtype": "f32"}],
+        "constants": [],
+        "nodes": [{"id": 1, "op": "negate", "inputs": [0], "attrs": {}, "shape": [2], "dtype": "f32"}],
+        "outputs": [{"node": 1, "shape": [2], "dtype": "f32"}],
+    }
+
+    with pytest.raises(CompileError, match="replay mismatch"):
+        compile_graph(12, graph, [], "CPU", validate_capture=True)
 
 
 def test_duplicate_input_cloning():

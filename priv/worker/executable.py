@@ -119,8 +119,14 @@ class Executable:
         self._jit = TinyJit(self._graph_fn)
         rounds = 3 if validate else 2
         outs = None
-        for _ in range(rounds):
+        reference = None
+
+        for round_index in range(rounds):
             outs = self._jit(*[self._dummy(spec) for spec in self.input_specs])
+            if validate and round_index == 0:
+                # Copy the eager result immediately: later JIT calls may reuse or
+                # mutate captured buffers.
+                reference = [np.ascontiguousarray(out.numpy()).copy() for out in outs]
 
         if len(outs) != len(self.output_specs):
             raise CompileError(f"captured {len(outs)} outputs, expected {len(self.output_specs)}")
@@ -128,7 +134,27 @@ class Executable:
             if list(out.shape) != list(spec["shape"]):
                 raise CompileError(f"captured output shape {list(out.shape)} != {spec['shape']}")
 
+        if validate:
+            self._validate_replay(reference, outs)
+
         self.kernel_count = self._count_kernels()
+
+    def _validate_replay(self, reference: list[np.ndarray], replayed: list[Tensor]) -> None:
+        for index, (expected, tensor, spec) in enumerate(zip(reference, replayed, self.output_specs)):
+            actual = np.ascontiguousarray(tensor.numpy())
+            expected_dtype = numpy_dtype(spec["dtype"])
+            if actual.dtype != expected_dtype:
+                raise CompileError(
+                    f"captured output {index} dtype {actual.dtype} != {expected_dtype}"
+                )
+
+            if np.issubdtype(actual.dtype, np.floating):
+                equal = np.array_equal(actual, expected, equal_nan=True)
+            else:
+                equal = np.array_equal(actual, expected)
+
+            if not equal:
+                raise CompileError(f"TinyJit replay mismatch for output {index}")
 
     def _count_kernels(self) -> int:
         # tinygrad's captured JIT stores its kernel/copy calls in linear.src.
