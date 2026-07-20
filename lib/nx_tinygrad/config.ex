@@ -3,12 +3,14 @@ defmodule NxTinygrad.Config do
 
   @defaults %{
     device: "CPU",
-    start_default_worker: true,
+    start_default_worker: false,
     debug: 0,
     compile_timeout: 120_000,
     execute_timeout: 60_000,
     cache: true,
-    executable_cache_size: 256
+    executable_cache_size: 256,
+    python_executable: nil,
+    worker_executable: nil
   }
 
   @spec get(atom()) :: term()
@@ -27,17 +29,35 @@ defmodule NxTinygrad.Config do
   @doc """
   The Python interpreter used to run the worker.
 
-  Set by the Nix devshell via `NX_TINYGRAD_PYTHON`; falls back to `python3` on
-  PATH otherwise.
+  Set through application config or `NX_TINYGRAD_PYTHON`; falls back to
+  `python3` on PATH. Raises a clear error when none is available.
   """
   @spec python_executable() :: String.t()
   def python_executable do
-    System.get_env("NX_TINYGRAD_PYTHON") || System.find_executable("python3") || "python3"
+    configured = get(:python_executable) || System.get_env("NX_TINYGRAD_PYTHON") || "python3"
+    resolve_executable!(configured, "Python interpreter")
+  end
+
+  @doc "Executable and arguments used to start the worker Port."
+  @spec worker_command() :: {String.t(), [String.t()]}
+  def worker_command do
+    case get(:worker_executable) || System.get_env("NX_TINYGRAD_WORKER") do
+      nil -> {python_executable(), [worker_main()]}
+      executable -> {resolve_executable!(executable, "nx_tinygrad worker"), []}
+    end
   end
 
   @doc "Absolute path to the worker's `main.py`."
   @spec worker_main() :: String.t()
   def worker_main do
     Path.join(:code.priv_dir(:nx_tinygrad), "worker/main.py")
+  end
+
+  defp resolve_executable!(executable, label) do
+    System.find_executable(executable) ||
+      raise NxTinygrad.Error,
+        message:
+          "#{label} #{inspect(executable)} was not found or is not executable; " <>
+            "set NX_TINYGRAD_WORKER or NX_TINYGRAD_PYTHON"
   end
 end

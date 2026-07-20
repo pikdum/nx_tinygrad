@@ -40,9 +40,15 @@ defmodule NxTinygrad.WorkerSupervisor do
   end
 
   @doc false
-  def worker_name(device), do: if(device == Config.device(), do: :default, else: {:device, device})
+  def ensure_default_started do
+    case NxTinygrad.Worker.whereis(:default) do
+      pid when is_pid(pid) -> :ok
+      nil -> ensure_started(:default, Config.device())
+    end
+  end
 
-  defp ensure_started(:default, _device), do: :ok
+  @doc false
+  def worker_name(device), do: if(device == Config.device(), do: :default, else: {:device, device})
 
   defp ensure_started(name, device) do
     case start_worker(name, device) do

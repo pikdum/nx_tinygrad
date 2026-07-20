@@ -3,8 +3,9 @@ import Config
 config :nx_tinygrad,
   # Default tinygrad device for the :default worker.
   device: "CPU",
-  # Start the :default worker when the application boots.
-  start_default_worker: true,
+  # Start the :default worker when the application boots. Disabled for library
+  # consumers; the first default-worker request starts it lazily.
+  start_default_worker: false,
   # tinygrad DEBUG level forwarded to the worker.
   debug: 0,
   # Timeouts (ms).

@@ -13,14 +13,14 @@
       pkgs = import nixpkgs { inherit system; };
 
       beam = pkgs.beam29Packages;
-      elixir = beam.elixir_1_20; # 1.20.0-rc.4
-      erlang = beam.erlang; # 29.0-rc3
+      elixir = beam.elixir_1_20;
+      erlang = beam.erlang;
 
       # Worker Python environment. We deliberately use plain nixpkgs tinygrad
       # (rocmSupport defaults to false), so the closure contains NO ROCm/HIP/
       # comgr. The AMD backend runs through tinygrad's native KFD driver and
-      # compiles kernels with libLLVM (AMD_LLVM=1), whose path nixpkgs already
-      # patches into tinygrad unconditionally.
+      # compiles kernels with libLLVM through DEV=KFD+AMD:LLVM, whose path nixpkgs
+      # already patches into tinygrad unconditionally.
       workerPython = pkgs.python3.withPackages (ps: [
         ps.tinygrad
         ps.numpy
@@ -70,6 +70,7 @@
       packages.${system} = {
         default = nx-tinygrad-worker;
         inherit nx-tinygrad-worker;
+        python = workerPython;
       };
 
       devShells.${system}.default = pkgs.mkShell {
@@ -146,6 +147,6 @@
             '';
       };
 
-      formatter.${system} = pkgs.nixfmt-rfc-style;
+      formatter.${system} = pkgs.nixfmt;
     };
 }

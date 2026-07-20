@@ -73,6 +73,12 @@ defmodule NxTinygrad.Worker do
   def generation(worker), do: GenServer.call(resolve(worker), :generation)
 
   defp resolve(pid) when is_pid(pid), do: pid
+
+  defp resolve(:default) do
+    NxTinygrad.WorkerSupervisor.ensure_default_started()
+    via(:default)
+  end
+
   defp resolve(name), do: via(name)
 
   # -- GenServer ----------------------------------------------------------
@@ -178,6 +184,7 @@ defmodule NxTinygrad.Worker do
 
   defp open_port(device_spec, generation) do
     parsed = Device.parse(device_spec)
+    {executable, args} = Config.worker_command()
 
     env =
       %{
@@ -191,12 +198,12 @@ defmodule NxTinygrad.Worker do
       |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
 
     Port.open(
-      {:spawn_executable, Config.python_executable()},
+      {:spawn_executable, executable},
       [
         :binary,
         :exit_status,
         {:packet, 4},
-        {:args, [Config.worker_main()]},
+        {:args, args},
         {:env, env}
       ]
     )
