@@ -72,6 +72,7 @@ result = predict.(x, weights, bias)
 - [docs/operation-coverage.md](docs/operation-coverage.md) — supported Nx operations
 - [docs/amd-nixos.md](docs/amd-nixos.md) — running on AMD without ROCm
 - [docs/troubleshooting.md](docs/troubleshooting.md)
+- [docs/performance.md](docs/performance.md) — cost breakdown + optimization experiments
 - [examples/](examples/) and [bench/](bench/)
 
 ## Telemetry
