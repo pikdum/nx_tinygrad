@@ -121,4 +121,25 @@ defmodule NxTinygrad.DifferentialTest do
     assert_close(NxTinygrad.jit(scalar_fun).(scalar, Nx.sum(vector)), scalar_fun.(scalar, Nx.sum(vector)))
     assert_close(NxTinygrad.jit(batched_fun).(a, b), batched_fun.(a, b), atol: 1.0e-4, rtol: 1.0e-4)
   end
+
+  test "NaN, infinity, and signed-zero behavior matches for basic unary ops" do
+    x = Nx.tensor([:neg_infinity, -1.0, -0.0, 0.0, 1.0, :infinity, :nan], type: :f32)
+    fun = fn t -> {Nx.negate(t), Nx.abs(t), Nx.exp(t)} end
+    actual = NxTinygrad.jit(fun, output: :host).(x)
+    expected = fun.(x)
+
+    for {a, e} <- Enum.zip(Tuple.to_list(actual), Tuple.to_list(expected)) do
+      assert Nx.to_flat_list(a) == Nx.to_flat_list(e)
+    end
+
+    assert Nx.to_binary(elem(actual, 1)) == Nx.to_binary(elem(expected, 1))
+  end
+
+  test "integer overflow follows Nx output dtype semantics" do
+    x = Nx.tensor([127, -128, 126, -127], type: :s8)
+    y = Nx.tensor([1, -1, 2, -2], type: :s8)
+    fun = fn a, b -> {Nx.add(a, b), Nx.subtract(a, b), Nx.multiply(a, b)} end
+
+    assert_close(NxTinygrad.jit(fun).(x, y), fun.(x, y))
+  end
 end

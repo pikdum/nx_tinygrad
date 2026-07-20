@@ -36,6 +36,12 @@ def test_expm1_and_log1p_are_stable_near_zero():
     assert np.allclose(run("log1p", [tensor]), np.log1p(values), rtol=1e-6, atol=1e-12)
 
 
+def test_abs_canonicalizes_negative_zero():
+    out = run("abs", [T([-0.0, 0.0, -1.0])])
+    assert out.tolist() == [0.0, 0.0, 1.0]
+    assert not np.signbit(out[0])
+
+
 def test_broadcasting_scalar_plus_vector():
     out = run("add", [T(1.0), T([1, 2, 3])], shape=[3])
     assert np.allclose(out, [2, 3, 4])

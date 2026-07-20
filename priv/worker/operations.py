@@ -42,9 +42,14 @@ def _log1p(t: Tensor) -> Tensor:
     return (t.abs() < 1e-2).where(small, (t + 1).log())
 
 
+def _abs(t: Tensor) -> Tensor:
+    # tinygrad preserves the sign bit for -0.0 here; Nx.abs returns +0.0.
+    return (t == 0).where(0.0, t.abs())
+
+
 _UNARY = {
     "negate": lambda t: -t,
-    "abs": lambda t: t.abs(),
+    "abs": _abs,
     "exp": lambda t: t.exp(),
     "expm1": _expm1,
     "log": lambda t: t.log(),
