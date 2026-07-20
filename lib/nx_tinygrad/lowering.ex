@@ -429,11 +429,24 @@ defmodule NxTinygrad.Lowering do
     end
   end
 
+  # metadata is a transparent wrapper; project through it to the inner tuple.
+  defp lower_tuple(%T{data: %Expr{op: :metadata, args: [inner, _meta]}}, state) do
+    lower_tuple(inner, state)
+  end
+
   defp lower_tuple(%T{data: %Expr{op: op}} = t, _state) do
     raise NxTinygrad.CompileError,
       message: "elem projection from unsupported tuple source: #{op}",
       operation: op,
       output_spec: %{shape: shape_of(t), dtype: safe_dtype(t)},
+      hint: "tuple projection supports tuple-valued blocks and while loops"
+  end
+
+  defp lower_tuple(other, _state) do
+    raise NxTinygrad.CompileError,
+      message: "elem projection from unsupported tuple source: #{inspect(other, limit: 2)}",
+      operation: :elem,
+      output_spec: %{shape: [], dtype: "n/a"},
       hint: "tuple projection supports tuple-valued blocks and while loops"
   end
 

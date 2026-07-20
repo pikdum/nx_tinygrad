@@ -451,6 +451,13 @@ defmodule NxTinygrad.DifferentialTest do
     )
   end
 
+  test "cholesky (iterative linalg via while) matches Nx" do
+    spd = Nx.tensor([[4.0, 1.0, 0.5], [1.0, 3.0, 0.2], [0.5, 0.2, 2.0]], type: :f32)
+    fun = fn t -> Nx.LinAlg.cholesky(t) end
+
+    assert_close(NxTinygrad.jit(fun).(spd), fun.(spd), atol: 1.0e-4, rtol: 1.0e-3)
+  end
+
   test "dynamic slice with a runtime start index matches Nx" do
     t = Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]], type: :f32)
 
