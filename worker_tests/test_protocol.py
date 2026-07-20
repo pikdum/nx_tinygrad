@@ -49,3 +49,21 @@ def test_truncated_packet_raises():
     inp = io.BytesIO(b"\x00\x00\x00\x10short")  # claims 16 bytes, has 5
     with pytest.raises(ProtocolError):
         protocol.read_packet(inp)
+
+
+def test_truncated_blob_length_table_raises_protocol_error():
+    frame = protocol.encode_frame(1, {"command": "upload"}, [b"data"])
+    with pytest.raises(ProtocolError, match="length table"):
+        protocol.decode_frame(frame[:22])
+
+
+def test_trailing_bytes_are_rejected():
+    frame = protocol.encode_frame(1, {"command": "stats"}, [])
+    with pytest.raises(ProtocolError, match="trailing bytes"):
+        protocol.decode_frame(frame + b"junk")
+
+
+def test_metadata_must_be_an_object():
+    frame = protocol.encode_frame(1, ["not", "an", "object"], [])
+    with pytest.raises(ProtocolError, match="JSON object"):
+        protocol.decode_frame(frame)

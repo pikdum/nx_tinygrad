@@ -8,7 +8,9 @@ graph content.
 """
 from __future__ import annotations
 
-from dtype import is_supported
+import math
+
+from dtype import is_supported, itemsize
 from errors import GraphValidationError
 from operations import SUPPORTED_OPS
 
@@ -30,7 +32,7 @@ def _valid_shape(shape):
     )
 
 
-def validate(graph: dict, blob_count: int, max_nodes: int = MAX_NODES) -> None:
+def validate(graph: dict, blobs: list[bytes], max_nodes: int = MAX_NODES) -> None:
     _check(isinstance(graph, dict), "graph must be an object")
     _check(graph.get("version") == GRAPH_VERSION, f"unsupported graph version: {graph.get('version')}")
 
@@ -40,6 +42,7 @@ def validate(graph: dict, blob_count: int, max_nodes: int = MAX_NODES) -> None:
     _check(len(graph["nodes"]) <= max_nodes, "graph exceeds maximum node count", limit=max_nodes)
 
     defined: set[int] = set()
+    specs: dict[int, tuple[list[int], str]] = {}
 
     def define(entity, ident):
         _check(isinstance(ident, int) and ident >= 0, f"invalid id in {entity}", id=ident)
@@ -51,6 +54,10 @@ def validate(graph: dict, blob_count: int, max_nodes: int = MAX_NODES) -> None:
         _check(isinstance(inp.get("index"), int) and inp["index"] >= 0, "input index must be a non-negative int")
         _check(_valid_shape(inp.get("shape")), "invalid input shape", shape=inp.get("shape"))
         _check(is_supported(inp.get("dtype")), f"unsupported input dtype: {inp.get('dtype')}")
+        specs[inp["id"]] = (inp["shape"], inp["dtype"])
+
+    indices = [inp["index"] for inp in graph["inputs"]]
+    _check(len(indices) == len(set(indices)), "input indices must be unique")
 
     for const in graph["constants"]:
         define("constant", const.get("id"))
@@ -61,10 +68,14 @@ def validate(graph: dict, blob_count: int, max_nodes: int = MAX_NODES) -> None:
         _check(has_value != has_data, "constant must have exactly one of value/data_index")
         if has_data:
             _check(
-                isinstance(const["data_index"], int) and 0 <= const["data_index"] < blob_count,
+                isinstance(const["data_index"], int) and 0 <= const["data_index"] < len(blobs),
                 "constant data_index out of range",
                 data_index=const.get("data_index"),
             )
+            expected = math.prod(const["shape"]) * itemsize(const["dtype"])
+            actual = len(blobs[const["data_index"]])
+            _check(actual == expected, "constant blob byte size mismatch", expected=expected, actual=actual)
+        specs[const["id"]] = (const["shape"], const["dtype"])
 
     for node in graph["nodes"]:
         define("node", node.get("id"))
@@ -75,7 +86,13 @@ def validate(graph: dict, blob_count: int, max_nodes: int = MAX_NODES) -> None:
         _check(isinstance(node.get("attrs"), dict), "node attrs must be an object")
         _check(_valid_shape(node.get("shape")), "invalid node shape", shape=node.get("shape"))
         _check(is_supported(node.get("dtype")), f"unsupported node dtype: {node.get('dtype')}")
+        specs[node["id"]] = (node["shape"], node["dtype"])
 
     _check(len(graph["outputs"]) >= 1, "graph must have at least one output")
     for out in graph["outputs"]:
         _check(out.get("node") in defined, f"output references undefined id {out.get('node')}")
+        _check(_valid_shape(out.get("shape")), "invalid output shape", shape=out.get("shape"))
+        _check(is_supported(out.get("dtype")), f"unsupported output dtype: {out.get('dtype')}")
+        expected_shape, expected_dtype = specs[out["node"]]
+        _check(out["shape"] == expected_shape, "output shape does not match referenced node")
+        _check(out["dtype"] == expected_dtype, "output dtype does not match referenced node")

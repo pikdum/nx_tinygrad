@@ -71,6 +71,10 @@ def decode_frame(payload: bytes) -> tuple[int, dict, list[bytes]]:
         raise ProtocolError(f"bad magic: {magic!r}")
 
     offset = _HEADER.size
+    lengths_size = blob_count * 8
+    if offset + lengths_size > len(payload):
+        raise ProtocolError("truncated blob length table")
+
     blob_lengths = []
     for _ in range(blob_count):
         (blen,) = struct.unpack_from(">Q", payload, offset)
@@ -86,6 +90,8 @@ def decode_frame(payload: bytes) -> tuple[int, dict, list[bytes]]:
         meta = json.loads(meta_bytes.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
         raise ProtocolError(f"invalid JSON metadata: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise ProtocolError("metadata must be a JSON object")
 
     blobs = []
     for blen in blob_lengths:
@@ -94,6 +100,9 @@ def decode_frame(payload: bytes) -> tuple[int, dict, list[bytes]]:
         if len(blob) != blen:
             raise ProtocolError("truncated blob")
         blobs.append(blob)
+
+    if offset != len(payload):
+        raise ProtocolError("trailing bytes after frame")
 
     return req_id, meta, blobs
 

@@ -8,5 +8,5 @@ from executable import Executable
 def compile_graph(
     exec_id: int, graph: dict, blobs: list[bytes], device: str, validate_capture: bool = True
 ) -> Executable:
-    graph_mod.validate(graph, blob_count=len(blobs))
+    graph_mod.validate(graph, blobs=blobs)
     return Executable(exec_id, graph, blobs, device, validate_capture=validate_capture)

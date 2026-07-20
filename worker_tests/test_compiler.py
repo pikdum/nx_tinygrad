@@ -54,6 +54,32 @@ def test_constant_from_blob():
     assert np.allclose(out.numpy(), [101, 202])
 
 
+def test_validation_rejects_wrong_constant_blob_size():
+    graph = {
+        "version": 1,
+        "inputs": [],
+        "constants": [{"id": 0, "data_index": 0, "shape": [2], "dtype": "f32"}],
+        "nodes": [],
+        "outputs": [{"node": 0, "shape": [2], "dtype": "f32"}],
+    }
+
+    with pytest.raises(GraphValidationError, match="byte size"):
+        compile_graph(13, graph, [b"too short"], "CPU")
+
+
+def test_validation_rejects_output_spec_mismatch():
+    graph = {
+        "version": 1,
+        "inputs": [{"id": 0, "index": 0, "shape": [2], "dtype": "f32"}],
+        "constants": [],
+        "nodes": [],
+        "outputs": [{"node": 0, "shape": [1, 2], "dtype": "f32"}],
+    }
+
+    with pytest.raises(GraphValidationError, match="output shape"):
+        compile_graph(14, graph, [], "CPU")
+
+
 def test_validation_rejects_unknown_op():
     graph = {
         "version": 1,
