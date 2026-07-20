@@ -130,8 +130,35 @@ class Executable:
             if node["op"] == "while":
                 for out, result in zip(node["outputs"], self._run_while(node, env)):
                     env[out["id"]] = result
+            elif node["op"] == "reduce":
+                env[node["id"]] = self._run_reduce(node, env)
             else:
                 env[node["id"]] = operations.apply(node, env)
+
+    def _run_reduce(self, node, env):
+        import math
+
+        t = env[node["inputs"][0]]
+        acc = env[node["inputs"][1]]
+        axes = node["attrs"]["axes"]
+        keep = node["attrs"]["keep_axes"]
+        body = node["attrs"]["fn"]
+        rank = len(t.shape)
+        non_axes = [a for a in range(rank) if a not in axes]
+
+        # Move reduced axes to the end and flatten them, so the fold is 1-D.
+        batch = [t.shape[a] for a in non_axes]
+        count = math.prod([t.shape[a] for a in axes]) if axes else 1
+        flat = t.permute(tuple(non_axes + list(axes))).reshape(tuple(batch) + (count,))
+
+        if batch and acc.shape == ():
+            acc = acc.reshape((1,) * len(batch)).expand(tuple(batch))
+        for i in range(count):
+            acc = self._interpret(body, [acc, flat[..., i]])[0]
+
+        if keep:
+            acc = acc.reshape(tuple(1 if a in axes else t.shape[a] for a in range(rank)))
+        return acc
 
     def _interpret(self, subgraph, params):
         # Evaluate a self-contained sub-graph with its loop-var parameters bound

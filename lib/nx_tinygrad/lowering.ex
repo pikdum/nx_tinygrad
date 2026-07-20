@@ -195,6 +195,17 @@ defmodule NxTinygrad.Lowering do
     add_node(state, t, Atom.to_string(op), [aid], %{"axes" => axes, "keep_axes" => !!opts[:keep_axes]})
   end
 
+  # reduce: a fold with a custom binary function. We extract the traced fn body
+  # (a function of two params: accumulator + element) as a sub-graph the worker
+  # folds over the reduced axes.
+  defp lower_new(%T{data: %Expr{op: :reduce, args: [tensor, acc, opts, fun]}} = t, state) do
+    %T{data: %Expr{op: :fun, args: [_params, body, _mfa]}} = fun
+    {ids, state} = lower_children([tensor, acc], state)
+    {body_sub, state} = lower_isolated([body], state)
+    axes = normalize_axes(opts[:axes], rank(tensor))
+    add_node(state, t, "reduce", ids, %{"axes" => axes, "keep_axes" => !!opts[:keep_axes], "fn" => body_sub})
+  end
+
   defp lower_new(%T{data: %Expr{op: op, args: [a, opts]}} = t, state) when op in [:argmax, :argmin] do
     {[aid], state} = lower_children([a], state)
     axis = opts[:axis]
