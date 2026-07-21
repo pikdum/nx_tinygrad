@@ -38,7 +38,8 @@ defmodule NxTinygrad.Compiler do
 
   @impl true
   def __compile__(_key, vars, fun, opts) do
-    {roots, output_container} = precompile(fun, vars)
+    {trace_us, {roots, output_container}} = :timer.tc(fn -> precompile(fun, vars) end)
+    log_phase("defn trace", trace_us)
 
     if roots == [] do
       # No tensor outputs (e.g. an empty tuple): nothing to compile or execute.
@@ -49,7 +50,8 @@ defmodule NxTinygrad.Compiler do
   end
 
   defp compile_graph(roots, output_container, opts) do
-    graph = Lowering.to_graph(roots)
+    {lower_us, graph} = :timer.tc(fn -> Lowering.to_graph(roots) end)
+    log_phase("lowering (#{length(graph.nodes)} nodes)", lower_us)
     output = output_mode!(Keyword.get(opts, :output, :device))
 
     worker = resolve_worker(opts)
@@ -121,12 +123,16 @@ defmodule NxTinygrad.Compiler do
       info = Worker.info(worker)
       generation = Worker.generation(worker)
 
-      key =
-        GraphCacheKey.compute(graph,
-          device: info["device"],
-          tinygrad_commit: info["tinygrad_commit"] || info["tinygrad_version"],
-          worker: worker
-        )
+      {key_us, key} =
+        :timer.tc(fn ->
+          GraphCacheKey.compute(graph,
+            device: info["device"],
+            tinygrad_commit: info["tinygrad_commit"] || info["tinygrad_version"],
+            worker: worker
+          )
+        end)
+
+      log_phase("graph cache key", key_us)
 
       case ExecutableCache.get(key) do
         %{generation: ^generation, executable_id: _id, executable_ref: _ref} = entry ->
@@ -149,10 +155,21 @@ defmodule NxTinygrad.Compiler do
     %{generation: generation, executable_id: id, executable_ref: ref}
   end
 
+  # Debug visibility into where BEAM-side compile time goes for large graphs
+  # (tracing, lowering, cache-key canonicalization, wire encoding).
+  defp log_phase(phase, us) when us > 1_000_000 do
+    Logger.debug("nx_tinygrad compile phase #{phase}: #{Float.round(us / 1000.0, 1)} ms")
+  end
+
+  defp log_phase(_phase, _us), do: :ok
+
   defp compile_worker(worker, graph, opts) do
     :telemetry.span([:nx_tinygrad, :compile], %{worker: worker, node_count: length(graph.nodes)}, fn ->
+      {wire_us, wire} = :timer.tc(fn -> Graph.to_wire(graph) end)
+      log_phase("wire encoding", wire_us)
+
       args = %{
-        "graph" => Graph.to_wire(graph),
+        "graph" => wire,
         "validate_capture" => Keyword.get(opts, :validate_capture, true)
       }
 

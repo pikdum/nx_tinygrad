@@ -76,6 +76,11 @@ WHILE_STATS = {
     "while_steps_symbolic": 0,
     "while_steps_interpreted": 0,
     "while_jit_fallbacks": 0,
+    # Top-level segments of eager graphs (the static regions between while /
+    # dynamic-slice nodes, e.g. SD's text encoder and VAE decoder).
+    "graph_segments_jit": 0,
+    "graph_segments_interpreted": 0,
+    "graph_segment_fallbacks": 0,
 }
 
 
@@ -112,6 +117,22 @@ def _sub_requires_eager(sub) -> bool:
             if _sub_requires_eager(fn) or any(_dyn_start_count(n) for n in fn["nodes"]):
                 return True
     return False
+
+
+def _node_jit_safe(node) -> bool:
+    # Can this top-level node live inside a TinyJit trace?
+    if _requires_eager(node):
+        return False
+    if node["op"] in ("reduce", "window_reduce"):
+        fn = node["attrs"]["fn"]
+        return not _sub_requires_eager(fn) and not any(_dyn_start_count(n) for n in fn["nodes"])
+    return True
+
+
+def _node_defined_ids(node) -> list:
+    if node["op"] == "while":
+        return [out["id"] for out in node["outputs"]]
+    return [node["id"]]
 
 
 def _symbolic_while_plan(body):
@@ -223,11 +244,169 @@ class Executable:
         self.duplicate_input_clones = 0
         self.kernel_count = 0
         self._jit = None
+        # Per-while-node step functions, cached across execute calls so replays
+        # skip re-capture (the cached TinyJit keeps its intermediate buffers
+        # alive between calls — that is what makes replays fast — and is freed
+        # with the executable).
+        self._while_steps: dict[int, tuple] = {}
+        # Top-level segments for eager graphs (see _plan_segments) and their
+        # cached per-segment step functions.
+        self._segments = None
+        self._segment_steps: dict[int, tuple] = {}
+        self._id_dtype: dict[int, str] = {}
         # Some nodes read runtime scalar values (a `while`'s condition, a dynamic
         # slice start), which can't be JIT-captured — such graphs run eagerly
         # node-by-node instead of via TinyJit replay.
         self._eager = any(_requires_eager(node) for node in graph["nodes"])
+        if self._eager:
+            self._segments = self._plan_segments()
         self._capture(validate_capture)
+
+    # -- top-level segmentation ----------------------------------------------
+    #
+    # A graph containing a while (or a top-level dynamic slice) runs eagerly,
+    # but everything BETWEEN those nodes is static — e.g. Stable Diffusion's
+    # text encoder and VAE decoder around the denoise loop. Split the node
+    # list into maximal jit-safe segments and eager singletons; each segment
+    # is TinyJit-captured once and replayed on later executes.
+
+    def _plan_segments(self):
+        for inp in self.graph["inputs"]:
+            self._id_dtype[inp["id"]] = inp["dtype"]
+        for const in self.graph["constants"]:
+            self._id_dtype[const["id"]] = const["dtype"]
+        for node in self.graph["nodes"]:
+            if node["op"] == "while":
+                for out in node["outputs"]:
+                    self._id_dtype[out["id"]] = out["dtype"]
+            else:
+                self._id_dtype[node["id"]] = node["dtype"]
+
+        plan = []
+        current = []
+
+        def flush():
+            if current:
+                plan.append(("jit", {"nodes": list(current)}))
+                current.clear()
+
+        for node in self.graph["nodes"]:
+            if _node_jit_safe(node):
+                current.append(node)
+            else:
+                flush()
+                plan.append(("eager", node))
+        flush()
+
+        if not any(kind == "jit" for kind, _ in plan):
+            return None
+
+        # ids needed strictly after each position (for segment outputs).
+        after = [set() for _ in plan]
+        needed = {o["node"] for o in self.graph["outputs"]}
+        for pos in range(len(plan) - 1, -1, -1):
+            after[pos] = set(needed)
+            kind, item = plan[pos]
+            for node in [item] if kind == "eager" else item["nodes"]:
+                needed.update(node["inputs"])
+
+        constants = set(self.constants)
+        for pos, (kind, item) in enumerate(plan):
+            if kind != "jit":
+                continue
+            defined = set()
+            inputs = []
+            for node in item["nodes"]:
+                for ref in node["inputs"]:
+                    if ref not in defined and ref not in constants and ref not in inputs:
+                        inputs.append(ref)
+                defined.update(_node_defined_ids(node))
+            item["input_ids"] = inputs
+            item["output_ids"] = [i for i in sorted(defined) if i in after[pos]]
+
+        return plan
+
+    def _eval_segments(self, env):
+        for idx, (kind, item) in enumerate(self._segments):
+            if kind == "eager":
+                self._eval_nodes([item], env)
+                continue
+            if not item["output_ids"]:
+                continue  # dead segment: nothing downstream reads it
+            step, mode = self._segment_step(idx, item)
+            if mode == "interpret":
+                WHILE_STATS["graph_segments_interpreted"] += 1
+                self._eval_nodes(item["nodes"], env)
+                continue
+            try:
+                results = step([env[i] for i in item["input_ids"]])
+            except Exception as exc:  # noqa: BLE001 — capture/replay failure
+                _log(f"graph segment JIT failed ({type(exc).__name__}: {exc}); "
+                     "falling back to interpretation")
+                WHILE_STATS["graph_segment_fallbacks"] += 1
+                self._segment_steps[idx] = (None, "interpret")
+                self._eval_nodes(item["nodes"], env)
+                continue
+            WHILE_STATS["graph_segments_jit"] += 1
+            for out_id, value in zip(item["output_ids"], results):
+                env[out_id] = value
+
+    def _segment_step(self, idx, item):
+        cached = self._segment_steps.get(idx)
+        if cached is not None:
+            return cached
+
+        in_dtypes = [self._id_dtype[i] for i in item["input_ids"]]
+        out_dtypes = [self._id_dtype[i] for i in item["output_ids"]]
+
+        def fn(*args):
+            env = dict(self.constants)
+            for ref, dtype, tensor in zip(item["input_ids"], in_dtypes, args):
+                env[ref] = Cx(tensor) if is_complex(dtype) else tensor
+            self._eval_nodes(item["nodes"], env)
+            outs = []
+            for ref in item["output_ids"]:
+                value = env[ref]
+                if isinstance(value, Cx):
+                    value = value.t
+                # Realized-in-trace outputs (input passthrough, constant view)
+                # schedule no kernel and would replay stale; clone them.
+                if value.uop.base.realized is not None:
+                    value = value.clone()
+                outs.append(value)
+            return outs
+
+        jit = TinyJit(fn)
+
+        def step(values):
+            seen: set[int] = set()
+            args = []
+            for value in values:
+                tensor = value.t if isinstance(value, Cx) else value
+                if tensor.uop.base.realized is None:
+                    # constant-foldable value: force a real buffer (jit input)
+                    tensor = tensor.clone().realize()
+                else:
+                    # A strided view input (e.g. from an interpreted dynamic
+                    # slice) bakes its runtime offsets into the capture and
+                    # would args-mismatch on the next execute; materialize it.
+                    contiguous = tensor.contiguous()
+                    if contiguous.uop is not tensor.uop:
+                        tensor = contiguous.realize()
+                base = tensor.uop.base
+                if id(base) in seen:
+                    tensor = tensor.clone().realize()  # TinyJit rejects dup buffers
+                else:
+                    seen.add(id(base))
+                args.append(tensor)
+            outs = jit(*args)
+            return [
+                Cx(out) if is_complex(dtype) else out for out, dtype in zip(outs, out_dtypes)
+            ]
+
+        cached = (step, "jit")
+        self._segment_steps[idx] = cached
+        return cached
 
     # -- graph evaluation ---------------------------------------------------
 
@@ -390,7 +569,13 @@ class Executable:
             for t in (env[i].realize() for i in node["inputs"])
         ]
         cond, body = node["attrs"]["cond"], node["attrs"]["body"]
-        step, kind = self._make_while_step(body, len(state))
+
+        key = id(node)
+        cached = self._while_steps.get(key)
+        if cached is None:
+            cached = self._make_while_step(body, len(state))
+            self._while_steps[key] = cached
+        step, kind = cached
 
         # Read the scalar condition each iteration (realizes it), then step.
         while bool(self._interpret(cond, state)[0].item()):
@@ -406,6 +591,7 @@ class Executable:
                          "falling back to interpretation")
                     WHILE_STATS["while_jit_fallbacks"] += 1
                     step, kind = (lambda s: self._interpret(body, s)), "interpret"
+                    self._while_steps[key] = (step, kind)
                     new_state = step(state)
             WHILE_STATS[f"while_steps_{'interpreted' if kind == 'interpret' else kind}"] += 1
             state = [t.realize() for t in new_state]
@@ -415,7 +601,10 @@ class Executable:
         env = dict(self.constants)
         for spec, tensor in zip(self.input_specs, inputs):
             env[spec["id"]] = Cx(tensor) if is_complex(spec["dtype"]) else tensor
-        self._eval_nodes(self.graph["nodes"], env)
+        if self._eager and self._segments is not None:
+            self._eval_segments(env)
+        else:
+            self._eval_nodes(self.graph["nodes"], env)
         # Force row-major contiguous outputs inside the captured graph (runs at
         # replay speed). This is a no-op for already-contiguous outputs and lets
         # immutable_copy do a raw buffer transfer safely even for outputs that

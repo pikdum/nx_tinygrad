@@ -4,7 +4,8 @@
 #   elixir examples/stable_diffusion.exs "a prompt"                                    # CPU
 #   NX_TINYGRAD_DEVICE="KFD+AMD:LLVM" elixir examples/stable_diffusion.exs "a prompt"  # AMD GPU
 #
-# Env knobs: SD_NUM_STEPS (default 20), SD_NUM_IMAGES (default 1).
+# Env knobs: SD_NUM_STEPS (default 20), SD_NUM_IMAGES (default 1), SD_RUNS
+# (default 1 — extra runs reuse the compiled graphs and show the warm cost).
 #
 # Downloads ~5 GB from Hugging Face on first run. The weights (~4 GB, mostly the
 # UNet) load DIRECTLY onto the execution worker: checkpoint bytes upload once
@@ -32,6 +33,7 @@ Nx.global_default_backend(Nx.BinaryBackend)
 device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
 num_steps = String.to_integer(System.get_env("SD_NUM_STEPS", "20"))
 num_images = String.to_integer(System.get_env("SD_NUM_IMAGES", "1"))
+num_runs = String.to_integer(System.get_env("SD_RUNS", "1"))
 
 prompt =
   case System.argv() do
@@ -89,9 +91,21 @@ IO.puts(
   "Generating #{num_images} image(s) on device=#{device}, #{num_steps} steps\nprompt: #{inspect(prompt)}\n"
 )
 
-run_t0 = System.monotonic_time(:millisecond)
-%{results: results} = Nx.Serving.run(serving, prompt)
-IO.puts("generate: #{System.monotonic_time(:millisecond) - run_t0} ms")
+results =
+  Enum.reduce(1..num_runs, nil, fn i, _ ->
+    run_t0 = System.monotonic_time(:millisecond)
+    %{results: results} = Nx.Serving.run(serving, prompt)
+    IO.puts("generate (run #{i}): #{System.monotonic_time(:millisecond) - run_t0} ms")
+    results
+  end)
+
+stats = NxTinygrad.worker_stats(worker: worker)
+
+IO.puts(
+  "denoise steps: #{stats["while_steps_symbolic"]} symbolic-JIT, " <>
+    "#{stats["while_steps_jit"]} static-JIT, #{stats["while_steps_interpreted"]} interpreted, " <>
+    "#{stats["while_jit_fallbacks"]} fallbacks"
+)
 
 results
 |> Enum.with_index()

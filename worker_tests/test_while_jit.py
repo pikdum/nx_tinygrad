@@ -15,19 +15,23 @@ def _T(data, dtype=np.float32):
 
 
 def _run(graph, make_inputs, interpret=False):
-    """Compile and run `graph`, optionally forcing while interpretation."""
+    """Compile and run `graph`, optionally forcing full interpretation
+    (no while-step JIT, no top-level segment JIT) as the semantic reference."""
     if interpret:
-        orig = executable_mod.Executable._make_while_step
+        orig_step = executable_mod.Executable._make_while_step
+        orig_plan = executable_mod.Executable._plan_segments
 
         def forced(self, body, n_state):
             return (lambda s: self._interpret(body, s)), "interpret"
 
         executable_mod.Executable._make_while_step = forced
+        executable_mod.Executable._plan_segments = lambda self: None
         try:
             ex = compile_graph(1, graph, [], "CPU")
             return [np.array(o.numpy()) for o in ex.run(make_inputs())]
         finally:
-            executable_mod.Executable._make_while_step = orig
+            executable_mod.Executable._make_while_step = orig_step
+            executable_mod.Executable._plan_segments = orig_plan
     ex = compile_graph(1, graph, [], "CPU")
     return [np.array(o.numpy()) for o in ex.run(make_inputs())]
 
@@ -327,6 +331,93 @@ def test_full_axis_dynamic_start_pins_to_static():
     delta = _delta(before)
     assert delta["while_steps_jit"] == 6
     assert delta["while_steps_symbolic"] == 0
+
+
+def test_while_step_jit_is_cached_across_executes():
+    constructions = 0
+    real_jit = executable_mod.TinyJit
+
+    class CountingJit(real_jit):
+        def __init__(self, fxn):
+            nonlocal constructions
+            constructions += 1
+            super().__init__(fxn)
+
+    executable_mod.TinyJit = CountingJit
+    try:
+        graph = _sd_shaped_graph(iters=6, n_coeffs=6)
+        ex = compile_graph(1, graph, [], "CPU")
+        first = [np.array(o.numpy()) for o in ex.run(_sd_inputs(6)())]
+        second = [np.array(o.numpy()) for o in ex.run(_sd_inputs(6)())]
+    finally:
+        executable_mod.TinyJit = real_jit
+
+    assert constructions == 1  # the second execute reuses the captured step
+    for a, b in zip(first, second):
+        assert np.array_equal(a, b)
+
+
+def test_top_level_segments_around_while_are_jitted():
+    # prefix (multiply) -> while -> suffix (add) : the static regions around
+    # the while must run as cached TinyJit segments, with exact parity.
+    n = 6
+    body = {
+        "inputs": [
+            {"id": 0, "index": 0, "shape": [4], "dtype": "f32"},
+            {"id": 1, "index": 1, "shape": [], "dtype": "s32"},
+        ],
+        "constants": [{"id": 2, "value": 1, "shape": [], "dtype": "s32"}],
+        "nodes": [
+            {"id": 3, "op": "multiply", "inputs": [0, 0], "attrs": {}, "shape": [4], "dtype": "f32"},
+            {"id": 4, "op": "add", "inputs": [1, 2], "attrs": {}, "shape": [], "dtype": "s32"},
+        ],
+        "outputs": [
+            {"node": 3, "shape": [4], "dtype": "f32"},
+            {"node": 4, "shape": [], "dtype": "s32"},
+        ],
+    }
+    graph = {
+        "version": 1,
+        "inputs": [{"id": 0, "index": 0, "shape": [4], "dtype": "f32"}],
+        "constants": [
+            {"id": 1, "value": 0, "shape": [], "dtype": "s32"},
+            {"id": 2, "value": 0.5, "shape": [], "dtype": "f32"},
+        ],
+        "nodes": [
+            # prefix segment
+            {"id": 10, "op": "multiply", "inputs": [0, 2], "attrs": {}, "shape": [4], "dtype": "f32"},
+            {"id": 11, "op": "tanh", "inputs": [10], "attrs": {}, "shape": [4], "dtype": "f32"},
+            # eager while
+            {
+                "id": 20,
+                "op": "while",
+                "inputs": [11, 1],
+                "attrs": {"cond": _counter_cond(3), "body": body},
+                "outputs": [
+                    {"id": 20, "shape": [4], "dtype": "f32"},
+                    {"id": 21, "shape": [], "dtype": "s32"},
+                ],
+            },
+            # suffix segment
+            {"id": 30, "op": "add", "inputs": [20, 2], "attrs": {}, "shape": [4], "dtype": "f32"},
+        ],
+        "outputs": [{"node": 30, "shape": [4], "dtype": "f32"}],
+    }
+    make_inputs = lambda: [_T([0.5, 1.0, 1.5, 2.0])]  # noqa: E731
+
+    before = _stats()
+    _assert_parity(graph, make_inputs)
+    delta = _delta(before)
+    assert delta["graph_segments_jit"] == 2  # prefix + suffix, one non-forced run
+    assert delta["graph_segment_fallbacks"] == 0
+
+    # segments and while steps are cached across executes of one executable
+    ex = compile_graph(2, graph, [], "CPU")
+    r1 = [np.array(o.numpy()) for o in ex.run(make_inputs())]
+    r2 = [np.array(o.numpy()) for o in ex.run(make_inputs())]
+    assert len(ex._segment_steps) == 2
+    for a, b in zip(r1, r2):
+        assert np.array_equal(a, b)
 
 
 def test_falls_back_to_interpretation_when_jit_breaks():
