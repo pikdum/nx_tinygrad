@@ -91,24 +91,36 @@ end
 # Rust-compatible tokenizer.json), exactly as Bumblebee's own example does.
 {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/clip-vit-large-patch14"})
 
+# Load from the .safetensors params rather than Bumblebee's default pick of
+# the PyTorch zip .bin: profiling showed ~60% of load-phase BEAM CPU inside
+# the zip machinery (Unzip central-directory re-parses, crc32, preads);
+# safetensors parses to zero-copy binary slices.
 {:ok, clip} =
   timed.("text_encoder", fn ->
     Bumblebee.load_model(
       {:hf, repo, subdir: "text_encoder"},
-      [backend: param_backend] ++ model_type
+      [backend: param_backend, params_filename: "model.safetensors"] ++ model_type
     )
   end)
 
 {:ok, unet} =
   timed.("unet", fn ->
-    Bumblebee.load_model({:hf, repo, subdir: "unet"}, [backend: param_backend] ++ model_type)
+    Bumblebee.load_model(
+      {:hf, repo, subdir: "unet"},
+      [backend: param_backend, params_filename: "diffusion_pytorch_model.safetensors"] ++
+        model_type
+    )
   end)
 
 {:ok, vae} =
   timed.("vae", fn ->
     Bumblebee.load_model(
       {:hf, repo, subdir: "vae"},
-      [architecture: :decoder, backend: param_backend] ++ model_type
+      [
+        architecture: :decoder,
+        backend: param_backend,
+        params_filename: "diffusion_pytorch_model.safetensors"
+      ] ++ model_type
     )
   end)
 
@@ -120,7 +132,10 @@ safety_opts =
 
     {:ok, safety_checker} =
       timed.("safety_checker", fn ->
-        Bumblebee.load_model({:hf, repo, subdir: "safety_checker"}, backend: param_backend)
+        Bumblebee.load_model({:hf, repo, subdir: "safety_checker"},
+          backend: param_backend,
+          params_filename: "model.safetensors"
+        )
       end)
 
     [safety_checker: safety_checker, safety_checker_featurizer: featurizer]
