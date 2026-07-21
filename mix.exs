@@ -36,7 +36,11 @@ defmodule NxTinygrad.MixProject do
 
   defp deps do
     [
-      {:nx, "~> 0.13.0"},
+      # Keep this loose enough to admit the nx that Bumblebee requires (0.12.x as
+      # of Bumblebee 0.7). Hard-pinning to a single 0.x line (e.g. "~> 0.13.0")
+      # makes the examples/*.exs Mix.install graphs unresolvable. `mix test` still
+      # resolves the newest permitted nx; the Bumblebee examples pick 0.12.
+      {:nx, "~> 0.12"},
       {:telemetry, "~> 1.2"},
       {:rustler, "~> 0.38.0"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},

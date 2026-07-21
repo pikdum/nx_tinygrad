@@ -82,6 +82,15 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
   Blocks without a pure default raise `NxTinygrad.CompileError`; the impure
   callback is never executed.
 
+### Fixed
+
+- Relaxed the `nx` requirement from `~> 0.13.0` to `~> 0.12` so the Bumblebee
+  `examples/*.exs` (`Mix.install`) can resolve — Bumblebee 0.7 requires
+  `nx ~> 0.12.0`, which the single-line `0.13` pin excluded, making those
+  examples unresolvable since they were added. `mix test` still runs on the
+  newest permitted nx (0.13); the examples resolve nx 0.12. Verified end-to-end:
+  ResNet-50 image classification runs through the compiler on CPU.
+
 ## [0.1.0] - 2026-07-19
 
 First release: an `Nx.Defn` compiler and tensor backend that runs whole Nx
