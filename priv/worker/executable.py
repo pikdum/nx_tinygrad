@@ -359,7 +359,22 @@ class Executable:
                 for use in uses:
                     raw = int(scratch[use["id"]].item())
                     bound.append(Variable(use["name"], 0, use["hi"]).bind(max(0, min(raw, use["hi"]))))
-            inputs = [t if j in invariant else t.clone().realize() for j, t in enumerate(state)]
+            # TinyJit rejects two inputs backed by the same buffer. Invariant
+            # vars can legitimately share one (params preallocated as views,
+            # tied weights) — clone the repeats. Non-invariant clones are
+            # fresh buffers already.
+            seen: set[int] = set()
+            inputs = []
+            for j, t in enumerate(state):
+                if j in invariant:
+                    base = t.uop.base
+                    if id(base) in seen:
+                        t = t.clone().realize()
+                    else:
+                        seen.add(id(base))
+                else:
+                    t = t.clone().realize()
+                inputs.append(t)
             outs = iter(jit(*inputs, *bound))
             return [state[j] if j in invariant else next(outs) for j in range(n_state)]
 

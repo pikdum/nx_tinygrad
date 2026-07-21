@@ -66,6 +66,7 @@ class Handler:
             "device_info": self.cmd_device_info,
             "compile": self.cmd_compile,
             "execute": self.cmd_execute,
+            "run_node": self.cmd_run_node,
             "upload": self.cmd_upload,
             "download": self.cmd_download,
             "release": self.cmd_release,
@@ -193,6 +194,68 @@ class Handler:
             bid = self.registry.put(cloned, ospec["shape"], ospec["dtype"], nbytes)
             specs.append({"id": bid, "shape": ospec["shape"], "dtype": ospec["dtype"]})
         return {"outputs": specs}, []
+
+    def cmd_run_node(self, args, blobs):
+        """Apply one graph-IR node eagerly to existing buffers / inline blobs.
+
+        Powers NxTinygrad.Backend's eager ops (e.g. device-side weight
+        remapping at model load). Inputs are positional; the node references
+        them as ids 0..n-1. The op table is the same one compiled graphs use,
+        so eager semantics match the compiled path exactly.
+        """
+        import operations
+        from dtype import is_complex, is_supported, itemsize, numpy_dtype, wire_tensor
+        from errors import UnsupportedOperation
+        from operations import Cx
+
+        op = args.get("op")
+        if op not in operations.SUPPORTED_OPS or op in ("while", "reduce", "window_reduce"):
+            raise UnsupportedOperation(f"run_node does not support op: {op!r}", details={"op": op})
+
+        shape = list(args["shape"])
+        dtype = args["dtype"]
+        if not is_supported(dtype):
+            raise ProtocolError(f"unsupported dtype: {dtype}")
+
+        env = {}
+        for i, spec in enumerate(args["inputs"]):
+            kind = spec.get("kind")
+            if kind == "handle":
+                buf = self.registry.get(spec["id"])
+                env[i] = Cx(buf.tensor) if is_complex(buf.dtype) else buf.tensor
+            elif kind == "blob":
+                blob = blobs[spec["blob_index"]]
+                arr = self.np.frombuffer(blob, dtype=numpy_dtype(spec["dtype"])).reshape(spec["shape"]).copy()
+                tensor = wire_tensor(arr, spec["dtype"], self.tg_device).realize()
+                env[i] = Cx(tensor) if is_complex(spec["dtype"]) else tensor
+                self.stats.upload_bytes += len(blob)
+            else:
+                raise ProtocolError(f"unknown input kind: {kind!r}")
+
+        node = {
+            "op": op,
+            "inputs": list(range(len(args["inputs"]))),
+            "attrs": args.get("attrs") or {},
+            "shape": shape,
+            "dtype": dtype,
+        }
+        result = operations.apply(node, env)
+        # contiguous() canonicalizes movement-op views (permute/pad/shrink)
+        # into owned buffers; compiled executables reject view-shaped inputs
+        # (TinyJit capture-time dummies are plain buffers). It is a no-op for
+        # computes, uploads, and reshape views, so those pay no extra copy.
+        tensor = (result.t if isinstance(result, Cx) else result).contiguous().realize()
+
+        expected = shape + [2] if is_complex(dtype) else shape
+        if list(tensor.shape) != expected:
+            raise ProtocolError(
+                f"run_node {op} produced shape {list(tensor.shape)}, expected {expected}"
+            )
+
+        nbytes = int(self.np.prod(shape, dtype="int64")) * itemsize(dtype)
+        buffer_id = self.registry.put(tensor, shape, dtype, nbytes)
+        self.stats.run_node_count += 1
+        return {"id": buffer_id, "shape": shape, "dtype": dtype}, []
 
     def cmd_upload(self, args, blobs):
         from dtype import numpy_dtype, wire_tensor

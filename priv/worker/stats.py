@@ -8,6 +8,7 @@ from dataclasses import dataclass, asdict
 class Stats:
     compile_count: int = 0
     execute_count: int = 0
+    run_node_count: int = 0
     upload_bytes: int = 0
     download_bytes: int = 0
     duplicate_input_clones: int = 0

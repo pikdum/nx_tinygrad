@@ -36,16 +36,23 @@ defmodule NxTinygrad.BackendTest do
     assert rendered =~ "3.0"
   end
 
-  test "eager operations raise instead of falling back" do
+  test "eager operations that need traced functions raise instead of falling back" do
     t = Nx.tensor([1.0, 2.0, 3.0]) |> to_device()
 
-    assert_raise NxTinygrad.Error, ~r/eager operations are not supported/, fn ->
-      Nx.add(t, t)
+    assert_raise NxTinygrad.Error, ~r/cannot run eagerly/, fn ->
+      Nx.reduce(t, 0, fn a, b -> Nx.add(a, b) end)
     end
+  end
 
-    assert_raise NxTinygrad.Error, ~r/eager operations are not supported/, fn ->
-      Nx.exp(t)
-    end
+  test "eager operations run on the worker without leaving the backend" do
+    t = Nx.tensor([1.0, 2.0, 3.0]) |> to_device()
+
+    sum = Nx.add(t, t)
+    assert %Backend{} = sum.data
+    assert Nx.to_flat_list(Nx.backend_transfer(sum)) == [2.0, 4.0, 6.0]
+
+    e = Nx.exp(t)
+    assert %Backend{} = e.data
   end
 
   test "deallocate releases the handle" do

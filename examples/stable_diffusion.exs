@@ -7,10 +7,13 @@
 # Env knobs: SD_NUM_STEPS (default 20), SD_NUM_IMAGES (default 1).
 #
 # Downloads ~5 GB from Hugging Face on first run. The weights (~4 GB, mostly the
-# UNet) are made device-resident via `preallocate_params: true`: they upload to
-# the worker ONCE and are passed by handle on every denoise step, instead of
-# being re-shipped as a multi-GB frame each call (which overflows the worker's
-# transport frame). This is what makes a model this large runnable at all.
+# UNet) load DIRECTLY onto the execution worker: checkpoint bytes upload once
+# and every param remap (transpose / reshape / f16->f32 upcast) runs device-side
+# through the backend's eager ops — an order of magnitude faster than remapping
+# on Nx.BinaryBackend — and the params land device-resident, passed by handle
+# every call instead of being re-shipped as a multi-GB frame (which would
+# overflow the worker's transport frame). `preallocate_params: true` is kept as
+# a safety net; for already-resident params it is a ~free handle-level copy.
 #
 # SD on CPU is slow — the first UNet execute JIT-compiles the whole kernel graph
 # in tinygrad, which is why the timeouts below are generous. The AMD GPU is far
@@ -38,15 +41,30 @@ prompt =
 
 repo = "CompVis/stable-diffusion-v1-4"
 
+# Load params straight onto the worker the compiled graphs will execute on
+# (the same resolution NxTinygrad.Compiler uses for `device:`).
+worker = NxTinygrad.WorkerSupervisor.worker_for_device(device)
+param_backend = {NxTinygrad.Backend, worker: worker}
+
+load_t0 = System.monotonic_time(:millisecond)
+
 # SD v1.4's text_encoder/ ships no tokenizer of its own; use CLIP's (which has a
 # Rust-compatible tokenizer.json), exactly as Bumblebee's own example does.
 {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/clip-vit-large-patch14"})
-{:ok, clip} = Bumblebee.load_model({:hf, repo, subdir: "text_encoder"})
-{:ok, unet} = Bumblebee.load_model({:hf, repo, subdir: "unet"})
-{:ok, vae} = Bumblebee.load_model({:hf, repo, subdir: "vae"}, architecture: :decoder)
+{:ok, clip} = Bumblebee.load_model({:hf, repo, subdir: "text_encoder"}, backend: param_backend)
+{:ok, unet} = Bumblebee.load_model({:hf, repo, subdir: "unet"}, backend: param_backend)
+
+{:ok, vae} =
+  Bumblebee.load_model({:hf, repo, subdir: "vae"},
+    architecture: :decoder,
+    backend: param_backend
+  )
+
 {:ok, scheduler} = Bumblebee.load_scheduler({:hf, repo, subdir: "scheduler"})
 {:ok, featurizer} = Bumblebee.load_featurizer({:hf, repo, subdir: "feature_extractor"})
-{:ok, safety_checker} = Bumblebee.load_model({:hf, repo, subdir: "safety_checker"})
+
+{:ok, safety_checker} =
+  Bumblebee.load_model({:hf, repo, subdir: "safety_checker"}, backend: param_backend)
 
 serving =
   Bumblebee.Diffusion.StableDiffusion.text_to_image(clip, unet, vae, tokenizer, scheduler,
@@ -65,11 +83,15 @@ serving =
     ]
   )
 
+IO.puts("model load: #{System.monotonic_time(:millisecond) - load_t0} ms (device-resident)")
+
 IO.puts(
   "Generating #{num_images} image(s) on device=#{device}, #{num_steps} steps\nprompt: #{inspect(prompt)}\n"
 )
 
+run_t0 = System.monotonic_time(:millisecond)
 %{results: results} = Nx.Serving.run(serving, prompt)
+IO.puts("generate: #{System.monotonic_time(:millisecond) - run_t0} ms")
 
 results
 |> Enum.with_index()

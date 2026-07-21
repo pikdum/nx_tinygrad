@@ -10,6 +10,17 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 
 ### Added
 
+- **Eager operations on `NxTinygrad.Backend`** — most Nx ops now run eagerly
+  on the device: each call ships one graph-IR node to the worker (`run_node`
+  command), applied through the same operation table compiled graphs use, so
+  eager semantics match the compiled path exactly. Loading Bumblebee models
+  with `backend: {NxTinygrad.Backend, worker: ...}` remaps checkpoint params
+  (transpose / reshape / f16→f32 upcast) device-side and lands them resident:
+  SD v1.4's UNet loads in ~20 s instead of ~330 s, CLIP in ~3 s instead of
+  ~31 s. Same-worker `Nx.backend_copy` is now a device-side handle mint (no
+  download/re-upload), making `preallocate_params: true` ~free for
+  already-resident params. Ops that need traced functions (`reduce`,
+  `window_reduce`) or host pointers still raise — never a silent fallback.
 - **Symbolic while-body JIT** — `while` bodies whose only runtime scalars are
   dynamic `slice`/`put_slice` starts (SD's denoise loop, iterative linalg) are
   now TinyJit-captured whole: each start becomes a bound tinygrad `Variable`
