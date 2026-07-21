@@ -648,13 +648,6 @@ defmodule NxTinygrad.Lowering do
 
   defp scalar_constant!(%T{data: %Expr{op: :tensor, args: [tensor]}}, _op), do: Nx.to_number(tensor)
 
-  # Classify a slice/put_slice start index as a compile-time constant or a
-  # runtime (dynamic) scalar tensor.
-  defp classify_start(%T{data: %Expr{op: :metadata, args: [inner, _meta]}}), do: classify_start(inner)
-  defp classify_start(%T{data: %Expr{op: :constant, args: [n]}}), do: {:static, n}
-  defp classify_start(%T{data: %Expr{op: :tensor, args: [tensor]}}), do: {:static, Nx.to_number(tensor)}
-  defp classify_start(%T{} = expr), do: {:dynamic, expr}
-
   defp scalar_constant!(%T{} = other, op) do
     raise NxTinygrad.CompileError,
       message: "#{op} requires a compile-time scalar constant value",
@@ -662,6 +655,13 @@ defmodule NxTinygrad.Lowering do
       output_spec: %{shape: shape_of(other), dtype: safe_dtype(other)},
       hint: "only scalar constant fill values are supported"
   end
+
+  # Classify a slice/put_slice start index as a compile-time constant or a
+  # runtime (dynamic) scalar tensor.
+  defp classify_start(%T{data: %Expr{op: :metadata, args: [inner, _meta]}}), do: classify_start(inner)
+  defp classify_start(%T{data: %Expr{op: :constant, args: [n]}}), do: {:static, n}
+  defp classify_start(%T{data: %Expr{op: :tensor, args: [tensor]}}), do: {:static, Nx.to_number(tensor)}
+  defp classify_start(%T{} = expr), do: {:dynamic, expr}
 
   defp normalize_axis(axis, rank) when axis < 0, do: axis + rank
   defp normalize_axis(axis, _rank), do: axis
