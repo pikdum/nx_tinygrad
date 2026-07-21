@@ -239,12 +239,18 @@ class Handler:
             "shape": shape,
             "dtype": dtype,
         }
+        # BEAM kernel search is for the hot compiled/captured kernels; eager
+        # run_node ops are one-shot (weight remaps at load), where a search
+        # multiplies load time ~8x for kernels that never run again.
+        from tinygrad.helpers import BEAM, Context
+
         result = operations.apply(node, env)
         # contiguous() canonicalizes movement-op views (permute/pad/shrink)
         # into owned buffers; compiled executables reject view-shaped inputs
         # (TinyJit capture-time dummies are plain buffers). It is a no-op for
         # computes, uploads, and reshape views, so those pay no extra copy.
-        tensor = (result.t if isinstance(result, Cx) else result).contiguous().realize()
+        with Context(BEAM=0):
+            tensor = (result.t if isinstance(result, Cx) else result).contiguous().realize()
 
         expected = shape + [2] if is_complex(dtype) else shape
         if list(tensor.shape) != expected:
