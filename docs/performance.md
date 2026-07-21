@@ -193,7 +193,7 @@ Measured on the RX 7900 XT (20 steps, 512×512, one process):
 | --- | ---: | ---: |
 | Model load (device-resident) | ~401 s | **~30 s** (~25 s without the safety checker) |
 | Generation 1 (kernel JIT + captures, one-time, cold disk cache) | ~10 min+ | ~241 s |
-| Warm generation, with safety checker | — | ~162 s |
+| Warm generation, with safety checker | ~162 s | **~19 s** (see below) |
 | **Warm generation, `SD_SAFETY=0`** | — | **~19 s** |
 
 Two decompositions from varying `SD_NUM_STEPS` and `SD_SAFETY`:
@@ -202,10 +202,37 @@ Two decompositions from varying `SD_NUM_STEPS` and `SD_SAFETY`:
   (5-step vs 20-step delta), 0 fallbacks. The 15 interpreted while-steps per
   generation are an outer scheduler loop that carries a nested while, which is
   expected to interpret.
-- The **safety checker costs ~143 s per image** — a whole CLIP-vision pass
-  plus its host-side featurizer — dwarfing the diffusion itself. The example
-  exposes `SD_SAFETY=0` to skip it; attributing/host-optimizing that pass is
-  the top follow-up.
+- The **safety checker used to cost ~143 s per image** — attributed and fixed
+  below. `SD_SAFETY=0` still skips it (saves the one-time CLIP-vision kernel
+  compile on generation 1).
+
+### 4. Safety checker (~143 s/image) — a host-side featurizer, not the model
+
+The CLIP-vision *model* was never the problem — Bumblebee compiles it through
+`defn_options` like the UNet, so it runs as one nx_tinygrad executable
+(~1–2 s warm). The cost was its **featurizer**: before invoking the compiled
+checker, `Bumblebee.Featurizer.process_input/2` resizes the generated
+512×512 image to 224×224 with `NxImage.resize(..., method: :bicubic)`. That
+is a plain `defn` call *outside* any `Nx.Defn.compile` — it runs under the
+default `Nx.Defn.Evaluator` on `Nx.BinaryBackend`, and that one bicubic
+resize measures **~113 s** (single-core pure Elixir). The rest of the gap was
+one-time compile/capture, not per-image cost.
+
+The fix (in the example) is one line — make nx_tinygrad the *default* defn
+compiler so stray defn calls in serving glue compile too:
+
+```elixir
+Nx.Defn.global_default_options(compiler: NxTinygrad.Compiler, device: device, ...)
+```
+
+The same resize then compiles to a cached executable: **~113 s → ~0.5 s**
+(max abs pixel diff 2e-4 on the 0–255 scale vs the evaluator). Measured
+end-to-end (20 steps, 512×512, `SD_SAFETY=1`, `SD_RUNS=3`): generation 1
+~100 s (one-time CLIP-vision kernel compile), generation 2 ~22 s (TinyJit
+segment capture), generation 3 **~19.4 s** — the safety checker is now free
+in the warm state. Any Bumblebee serving with a featurizer (image
+classification, embeddings, …) hits this same evaluator trap; the
+global-default-options line is the general cure.
 
 So end-to-end for one image went **~10+ min → ~19 s warm** (~82 s first
 generation in a fresh process with a warm kernel disk-cache). During warm

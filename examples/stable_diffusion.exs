@@ -6,7 +6,8 @@
 #
 # Env knobs: SD_NUM_STEPS (default 20), SD_NUM_IMAGES (default 1), SD_RUNS
 # (default 1 — extra runs reuse the compiled graphs and show the warm cost),
-# SD_SAFETY=0 to skip the safety checker (a whole CLIP-vision pass per image).
+# SD_SAFETY=0 to skip the safety checker (an extra CLIP-vision pass per image —
+# cheap once warm, but it does add one-time kernel-compile cost on run 1).
 #
 # Downloads ~5 GB from Hugging Face on first run. The weights (~4 GB, mostly the
 # UNet) load DIRECTLY onto the execution worker: checkpoint bytes upload once
@@ -32,6 +33,19 @@ Mix.install([
 Nx.global_default_backend(Nx.BinaryBackend)
 
 device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
+
+# Plain defn calls (not wrapped in Nx.Defn.compile) also go through nx_tinygrad.
+# This matters for the safety checker's featurizer: its NxImage.resize would
+# otherwise run under the default Nx.Defn.Evaluator on BinaryBackend, which
+# costs ~113 s for one 512x512 bicubic resize (~0.5 s compiled).
+Nx.Defn.global_default_options(
+  compiler: NxTinygrad.Compiler,
+  device: device,
+  output: :host,
+  execute_timeout: 1_200_000,
+  compile_timeout: 1_200_000
+)
+
 num_steps = String.to_integer(System.get_env("SD_NUM_STEPS", "20"))
 num_images = String.to_integer(System.get_env("SD_NUM_IMAGES", "1"))
 num_runs = String.to_integer(System.get_env("SD_RUNS", "1"))
