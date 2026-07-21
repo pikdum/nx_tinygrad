@@ -1,12 +1,13 @@
 # One-shot integration test: run a real Bumblebee text-classification model
-# (a BERT-family encoder) with the forward pass compiled by nx_tinygrad.
+# (DistilRoBERTa emotion classifier) with the forward pass compiled by nx_tinygrad.
 #
 #   elixir examples/bumblebee_text_classification.exs
 #   NX_TINYGRAD_DEVICE="KFD+AMD:LLVM" elixir examples/bumblebee_text_classification.exs
 #
 # Exercises the encoder path that already works today: token/position embeddings
 # (gather), multi-head attention (batched dot + softmax), layer norm, GELU (erf).
-# Downloads the model from Hugging Face on first run.
+# Downloads the model from Hugging Face on first run. The repo must ship a
+# Rust-compatible tokenizer.json (Bumblebee 0.7 rejects slow-only tokenizers).
 
 Mix.install([
   {:nx_tinygrad, path: Path.expand("..", __DIR__)},
@@ -18,7 +19,7 @@ Mix.install([
 Nx.global_default_backend(Nx.BinaryBackend)
 device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
 
-repo = "finiteautomata/bertweet-base-sentiment-analysis"
+repo = "j-hartmann/emotion-english-distilroberta-base"
 {:ok, model} = Bumblebee.load_model({:hf, repo})
 {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, repo})
 
@@ -37,4 +38,4 @@ for text <- [
   IO.puts("#{Float.round(score, 3)}  #{label}\t| #{text}")
 end
 
-IO.puts("\nPASS ✅  BERT encoder ran through nx_tinygrad on device=#{device}")
+IO.puts("\nPASS ✅  DistilRoBERTa encoder ran through nx_tinygrad on device=#{device}")

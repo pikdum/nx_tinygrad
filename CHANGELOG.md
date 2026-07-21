@@ -88,8 +88,20 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
   `examples/*.exs` (`Mix.install`) can resolve — Bumblebee 0.7 requires
   `nx ~> 0.12.0`, which the single-line `0.13` pin excluded, making those
   examples unresolvable since they were added. `mix test` still runs on the
-  newest permitted nx (0.13); the examples resolve nx 0.12. Verified end-to-end:
-  ResNet-50 image classification runs through the compiler on CPU.
+  newest permitted nx (0.13); the examples resolve nx 0.12.
+- All `examples/` now honor `NX_TINYGRAD_DEVICE` (default `CPU`), so every
+  example runs on either CPU or the AMD GPU (`KFD+AMD:LLVM`). Previously
+  `basic`, `matmul`, `mlp_inference`, and `mlp_training` were hardwired to the
+  default CPU worker and could not target the GPU.
+- `bumblebee_text_classification` now uses
+  `j-hartmann/emotion-english-distilroberta-base` — the previous
+  `finiteautomata/bertweet-base-sentiment-analysis` ships no Rust-compatible
+  `tokenizer.json`, so Bumblebee 0.7 failed at `load_tokenizer` before the
+  compiler ran.
+- Verified end-to-end on both CPU and the AMD RX 7900 XT: all seven examples
+  (basic, matmul, MLP inference/training, Axon MLP training, ResNet-50 image
+  classification, DistilRoBERTa emotion classification) run through the compiler
+  with matching numerics on both devices.
 
 ## [0.1.0] - 2026-07-19
 

@@ -1,6 +1,7 @@
 # Two-layer MLP inference.
 #
-#   mix run examples/mlp_inference.exs
+#   mix run examples/mlp_inference.exs                                  # CPU
+#   NX_TINYGRAD_DEVICE="KFD+AMD:LLVM" mix run examples/mlp_inference.exs # AMD GPU
 
 defmodule MLP do
   import Nx.Defn
@@ -20,6 +21,7 @@ params = {
 
 x = Nx.tensor([[0.5, -0.3, 0.8], [0.1, 0.2, -0.4]])
 
-predict = NxTinygrad.jit(&MLP.predict/2)
+device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
+predict = NxTinygrad.jit(&MLP.predict/2, device: device)
 IO.inspect(Nx.backend_transfer(predict.(params, x)), label: "nx_tinygrad prediction")
 IO.inspect(MLP.predict(params, x), label: "reference")
