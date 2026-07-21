@@ -51,6 +51,19 @@ num_images = String.to_integer(System.get_env("SD_NUM_IMAGES", "1"))
 num_runs = String.to_integer(System.get_env("SD_RUNS", "1"))
 safety? = System.get_env("SD_SAFETY", "1") == "1"
 
+# SD_TYPE=f16|bf16 casts the clip/unet/vae params device-side at load and runs
+# their compute in that type (Axon mixed-precision policy). Measured on the
+# RX 7900 XT (warm, 20 steps): f32 ~19 s (default, correct); f16 ~16 s but the
+# image comes out black (a model-level overflow — tinygrad's f16 matmul/softmax
+# /layernorm all probe clean); bf16 ~34 s, correct but slow (LLVM emulates
+# scalar bf16, only WMMA is native). The safety checker stays f32 — it is
+# ~free warm and gates is_safe.
+model_type =
+  case System.get_env("SD_TYPE", "f32") do
+    "f32" -> []
+    t when t in ["f16", "bf16"] -> [type: String.to_existing_atom(t)]
+  end
+
 prompt =
   case System.argv() do
     [p | _] -> p
@@ -66,17 +79,37 @@ param_backend = {NxTinygrad.Backend, worker: worker}
 
 load_t0 = System.monotonic_time(:millisecond)
 
+timed = fn label, fun ->
+  t0 = System.monotonic_time(:millisecond)
+  result = fun.()
+  IO.puts("  load #{label}: #{System.monotonic_time(:millisecond) - t0} ms")
+  result
+end
+
 # SD v1.4's text_encoder/ ships no tokenizer of its own; use CLIP's (which has a
 # Rust-compatible tokenizer.json), exactly as Bumblebee's own example does.
 {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/clip-vit-large-patch14"})
-{:ok, clip} = Bumblebee.load_model({:hf, repo, subdir: "text_encoder"}, backend: param_backend)
-{:ok, unet} = Bumblebee.load_model({:hf, repo, subdir: "unet"}, backend: param_backend)
+
+{:ok, clip} =
+  timed.("text_encoder", fn ->
+    Bumblebee.load_model(
+      {:hf, repo, subdir: "text_encoder"},
+      [backend: param_backend] ++ model_type
+    )
+  end)
+
+{:ok, unet} =
+  timed.("unet", fn ->
+    Bumblebee.load_model({:hf, repo, subdir: "unet"}, [backend: param_backend] ++ model_type)
+  end)
 
 {:ok, vae} =
-  Bumblebee.load_model({:hf, repo, subdir: "vae"},
-    architecture: :decoder,
-    backend: param_backend
-  )
+  timed.("vae", fn ->
+    Bumblebee.load_model(
+      {:hf, repo, subdir: "vae"},
+      [architecture: :decoder, backend: param_backend] ++ model_type
+    )
+  end)
 
 {:ok, scheduler} = Bumblebee.load_scheduler({:hf, repo, subdir: "scheduler"})
 
@@ -85,7 +118,9 @@ safety_opts =
     {:ok, featurizer} = Bumblebee.load_featurizer({:hf, repo, subdir: "feature_extractor"})
 
     {:ok, safety_checker} =
-      Bumblebee.load_model({:hf, repo, subdir: "safety_checker"}, backend: param_backend)
+      timed.("safety_checker", fn ->
+        Bumblebee.load_model({:hf, repo, subdir: "safety_checker"}, backend: param_backend)
+      end)
 
     [safety_checker: safety_checker, safety_checker_featurizer: featurizer]
   else
