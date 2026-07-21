@@ -48,9 +48,11 @@ it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
   (denoise runs as TinyJit replays at ~1 s/step, 0 fallbacks; bench 27 →
   ~3.5 ms/iter); top-level segment JIT captures the static regions around
   `while` nodes (text encoder / VAE). SD v1.4 warm generation: ~10+ min →
-  **~19 s** (`SD_SAFETY=0`; the safety-checker pass costs ~143 s/image and is
-  the top remaining target). GPU now ~100 % busy during generation. See
-  `docs/performance.md`.
+  **~19 s**, safety checker included — its former ~143 s/image was the
+  featurizer's `NxImage.resize` running under `Nx.Defn.Evaluator` on
+  `BinaryBackend`; routing plain defn calls through the compiler
+  (`Nx.Defn.global_default_options`) makes it ~free. GPU now ~100 % busy
+  during generation. See `docs/performance.md`.
 
 ## Commands / results
 
