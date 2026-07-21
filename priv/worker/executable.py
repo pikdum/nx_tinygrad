@@ -199,10 +199,21 @@ class Executable:
         cond, body = node["attrs"]["cond"], node["attrs"]["body"]
 
         # The body is a static computation (only the trip count is dynamic), so
-        # JIT-capture it for fast replay — unless it itself needs eager execution
-        # (a nested while or dynamic slice), in which case interpret it directly.
+        # JIT-capture it for fast replay — unless it needs eager execution (a
+        # nested while, or a dynamic slice that reads a runtime index).
         if any(_requires_eager(n) for n in body["nodes"]):
-            step = lambda s: self._interpret(body, s)  # noqa: E731
+            # An eager body would otherwise be re-interpreted node-by-node every
+            # iteration (e.g. Stable Diffusion's whole UNet, ~seconds/step). But
+            # only the dynamic-slice nodes and their descendants truly need eager
+            # execution; the rest (the expensive static compute, like the UNet,
+            # which depends only on loop-carried + invariant inputs, not the
+            # runtime index) can still be JIT-captured. Partition and accelerate;
+            # fall back to full interpretation on anything unexpected.
+            partitioned = self._partition_while_step(state, body)
+            if partitioned is not None:
+                step = partitioned
+            else:
+                step = lambda s: [t.realize() for t in self._interpret(body, s)]  # noqa: E731
         else:
             jit = TinyJit(lambda *s: self._interpret(body, list(s)))
             step = lambda s: jit(*[t.clone().realize() for t in s])  # noqa: E731
@@ -211,6 +222,121 @@ class Executable:
         while bool(self._interpret(cond, state)[0].item()):
             state = [t.realize() for t in step(state)]
         return state
+
+    def _partition_while_step(self, state, body):
+        """Build a `step(state) -> new_state` that JITs the static sub-body and
+        interprets only the dynamic-slice-tainted nodes. Returns None to signal
+        "fall back to full interpretation" (nested while, nothing static, etc.)."""
+        try:
+            nodes = body["nodes"]
+            if any(nd["op"] == "while" for nd in nodes):
+                return None  # nested loops: keep it simple, interpret
+
+            n = len(state)
+
+            # Taint dynamic-slice nodes and everything transitively downstream.
+            eager_ids = set()
+            for nd in nodes:
+                if _requires_eager(nd) or any(inp in eager_ids for inp in nd.get("inputs", [])):
+                    eager_ids.add(nd["id"])
+
+            static_nodes = [nd for nd in nodes if nd["id"] not in eager_ids]
+            eager_nodes = [nd for nd in nodes if nd["id"] in eager_ids]
+            static_ids = {nd["id"] for nd in static_nodes}
+            if not static_nodes:
+                return None  # nothing to accelerate
+
+            outs = body["outputs"]
+            inputs_by_index = {bi["index"]: bi["id"] for bi in body["inputs"]}
+            # Loop-invariant inputs (returned unchanged) are closed over so the
+            # JIT binds them ONCE, instead of cloning them (e.g. GBs of weights)
+            # every iteration; only genuinely carried inputs are cloned.
+            invariant = (
+                [outs[i]["node"] == inputs_by_index.get(i) for i in range(n)]
+                if len(outs) == n
+                else [False] * n
+            )
+            carried = [i for i in range(n) if not invariant[i]]
+            fixed = list(state)
+
+            # Static-node outputs consumed downstream (by an eager node or a body
+            # output) must be produced by the JIT and handed to the interpreter.
+            needed, seen = [], set()
+            for nd in eager_nodes:
+                for inp in nd.get("inputs", []):
+                    if inp in static_ids and inp not in seen:
+                        seen.add(inp)
+                        needed.append(inp)
+            for o in outs:
+                if o["node"] in static_ids and o["node"] not in seen:
+                    seen.add(o["node"])
+                    needed.append(o["node"])
+
+            consts = {c["id"]: _make_constant(c, self.blobs, self.device) for c in body["constants"]}
+
+            def s_fn(*carried_vals):
+                env = dict(consts)
+                full = list(fixed)
+                for j, i in enumerate(carried):
+                    full[i] = carried_vals[j]
+                for bi in body["inputs"]:
+                    env[bi["id"]] = full[bi["index"]]
+                self._eval_nodes(static_nodes, env)
+                return [env[nid] for nid in needed]
+
+            jit_s = TinyJit(s_fn) if needed else None
+
+            def step(cur_state):
+                s_vals = []
+                if jit_s is not None:
+                    s_vals = [t.realize() for t in jit_s(*[cur_state[i].clone().realize() for i in carried])]
+
+                env = dict(consts)
+                for bi in body["inputs"]:
+                    env[bi["id"]] = cur_state[bi["index"]]
+                for nid, val in zip(needed, s_vals):
+                    env[nid] = val
+                self._eval_nodes(eager_nodes, env)
+                return [env[o["node"]].realize() for o in outs]
+
+            def matches(got, want):
+                if len(got) != len(want):
+                    return False
+                for i in range(len(want)):
+                    if list(got[i].shape) != list(want[i].shape):
+                        return False
+                    # Only the carried outputs change; numeric-check just those.
+                    if i in carried and not np.allclose(
+                        got[i].numpy(), want[i].numpy(), rtol=1e-3, atol=1e-4, equal_nan=True
+                    ):
+                        return False
+                return True
+
+            # The partitioned step must match full interpretation before we trust
+            # it. TinyJit's first call runs normally, the second captures, later
+            # calls replay — so a capture/replay bug only shows up on replay with a
+            # CHANGED input. Warm up capture, then validate the replay over two
+            # consecutive real iterations (state -> s1 -> s2). Any mismatch (e.g.
+            # the linalg put_slice loops) falls back to correct interpretation.
+            # Snapshot step outputs into independent buffers: TinyJit reuses its
+            # output buffers across calls, so a later step() would overwrite an
+            # earlier result. (The real loop is safe because it clones inputs
+            # before each replay; the validation reads results across calls.)
+            def snap(lst):
+                return [t.clone().realize() for t in lst]
+
+            step(state)
+            step(state)
+            s1 = snap(step(state))
+            if not matches(s1, snap(self._interpret(body, state))):
+                return None
+            s2 = snap(step(s1))
+            if not matches(s2, snap(self._interpret(body, s1))):
+                return None
+
+            return step
+        except Exception:  # noqa: BLE001 — any surprise: fall back to interpretation
+            return None
 
     def _graph_fn(self, *inputs):
         env = dict(self.constants)
