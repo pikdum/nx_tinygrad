@@ -27,6 +27,9 @@ __pycache__/
 # direnv
 /.direnv/
 
+# Example outputs (e.g. examples/stable_diffusion.exs writes sd_out_<i>.png)
+/sd_out_*.png
+
 # Editor
 *~
 .DS_Store

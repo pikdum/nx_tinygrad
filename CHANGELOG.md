@@ -33,7 +33,17 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 - Elementwise: `erf_inv`, `count_leading_zeros`, `population_count`,
   `conjugate` (real), `bitcast`.
 - Integration examples under `examples/` (Mix.install): Axon MLP training,
-  Bumblebee text classification (BERT), Bumblebee image classification (ResNet).
+  Bumblebee text classification (DistilRoBERTa), Bumblebee image classification
+  (ResNet-50), and **Stable Diffusion v1.4 text-to-image** — the CLIP text
+  encoder, the UNet denoiser, and the VAE decoder all compiled by nx_tinygrad,
+  verified end-to-end on CPU and the AMD RX 7900 XT (a coherent 512×512 image).
+- **Weight residency for large models** — `NxTinygrad.Compiler.__to_backend__/1`
+  now resolves the backend to the same worker the executable runs on (honoring
+  `:device`/`:worker`), so weights preallocated via `Nx.backend_copy` /
+  Bumblebee's `preallocate_params: true` upload to the device **once** and are
+  passed by handle every call, instead of being re-shipped as a multi-GB frame
+  per invocation. This is what makes Stable Diffusion (~4 GB of UNet weights,
+  called once per denoise step) runnable at all.
 
 - Elementwise unary ops: `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `asinh`,
   `acosh`, `atanh`, `erf`, `cbrt`, `sign`, `is_nan`, `is_infinity`, `bitwise_not`.

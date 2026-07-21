@@ -36,6 +36,12 @@ it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
 - [x] **M7** — Nx `value_and_grad` parity, MLP inference, and a verified parameter update.
 - [x] **M6** — AMD `KFD+AMD:LLVM` path: smoke, parity, persistence, and no ROCm loaded on RX 7900 XT.
 - [x] **M8** — telemetry, docs, examples, benchmarks, and flake checks. Release 0.1.0.
+- [x] **M9** — op-coverage march (full `Nx.Defn` primitive surface, ~97 worker
+  ops) + Bumblebee integration suite verified on CPU and the RX 7900 XT: text
+  classification, image classification (ResNet-50), Axon MLP training, and
+  **Stable Diffusion v1.4 text-to-image** (CLIP + UNet + VAE). Large models are
+  made runnable by weight residency: `preallocate_params: true` uploads weights
+  once and passes them by handle, rather than re-shipping them every call.
 
 ## Commands / results
 

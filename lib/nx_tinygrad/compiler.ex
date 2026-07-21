@@ -79,8 +79,13 @@ defmodule NxTinygrad.Compiler do
   @impl true
   def __partitions_options__(opts), do: [opts]
 
+  # Resolve the backend to the SAME worker the executable runs on, so that
+  # weights preallocated via `Nx.backend_copy`/Bumblebee's `preallocate_params`
+  # become resident on the execute worker and are passed by handle (not
+  # re-uploaded as a multi-GB blob every call). Honors `:worker`/`:device` the
+  # same way `resolve_worker/1` does.
   @impl true
-  def __to_backend__(opts), do: {Backend, Keyword.take(opts, [:worker])}
+  def __to_backend__(opts), do: {Backend, [worker: resolve_worker(opts)]}
 
   # An explicit `:worker` wins; otherwise `:device` routes to (and starts) a
   # worker for that device; otherwise the :default worker.

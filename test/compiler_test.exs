@@ -89,6 +89,37 @@ defmodule NxTinygrad.CompilerTest do
     assert_close(result, G.reduction(x))
   end
 
+  test "__to_backend__ resolves the same worker execution uses (weight residency)" do
+    # Regression: __to_backend__ used to drop :device and always leave the
+    # worker defaulted, so weights preallocated via Nx.backend_copy /
+    # Bumblebee's `preallocate_params` landed on the wrong worker for a
+    # non-default device. They were then re-uploaded as one multi-GB blob every
+    # call, overflowing the transport frame (this is what blocked Stable
+    # Diffusion). It must route the same way the executable does.
+    assert {NxTinygrad.Backend, be_opts} = NxTinygrad.Compiler.__to_backend__([])
+    assert Keyword.fetch!(be_opts, :worker) == :default
+
+    assert {NxTinygrad.Backend, [worker: :some_worker]} =
+             NxTinygrad.Compiler.__to_backend__(worker: :some_worker)
+
+    device = NxTinygrad.Config.device()
+    assert {NxTinygrad.Backend, be_opts} = NxTinygrad.Compiler.__to_backend__(device: device)
+    assert Keyword.fetch!(be_opts, :worker) == NxTinygrad.WorkerSupervisor.worker_for_device(device)
+  end
+
+  test "a weight preallocated to the compiler backend is reused resident across a jit call" do
+    # Mirror Bumblebee's preallocate_params flow: copy inputs to the compiler's
+    # backend once, then run a compiled function on the same device. The
+    # resident buffer must be passed by handle and give correct results — the
+    # mechanism that makes multi-GB models (Stable Diffusion) runnable.
+    x = Nx.iota({2, 3}, type: :f32)
+    {backend, backend_opts} = NxTinygrad.Compiler.__to_backend__(device: "CPU")
+    resident = Nx.backend_copy(x, {backend, backend_opts})
+
+    assert %NxTinygrad.Backend{} = resident.data
+    assert_close(NxTinygrad.jit(&Nx.negate/1, device: "CPU").(resident), Nx.negate(x))
+  end
+
   test "compiling twice yields equal results (idempotent)" do
     x = Nx.iota({2, 3}, type: :f32)
     r1 = NxTinygrad.jit(&G.reduction/1).(x)
