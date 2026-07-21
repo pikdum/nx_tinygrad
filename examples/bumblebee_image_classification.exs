@@ -17,6 +17,12 @@ Mix.install([
 Nx.global_default_backend(Nx.BinaryBackend)
 device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
 
+# Route plain defn calls through nx_tinygrad too. The serving's featurizer
+# (NxImage.resize + center crop) runs outside Nx.Defn.compile, so it would
+# otherwise fall to the Nx.Defn.Evaluator on BinaryBackend: ~33 s per image
+# vs ~0.4 s compiled.
+Nx.Defn.global_default_options(compiler: NxTinygrad.Compiler, device: device, output: :host)
+
 repo = "microsoft/resnet-50"
 {:ok, model} = Bumblebee.load_model({:hf, repo})
 {:ok, featurizer} = Bumblebee.load_featurizer({:hf, repo})
@@ -39,7 +45,9 @@ image =
       Nx.iota({224, 224, 3}, type: :u8) |> Nx.remainder(256) |> Nx.as_type(:u8)
   end
 
+t0 = System.monotonic_time(:millisecond)
 %{predictions: preds} = Nx.Serving.run(serving, image)
+IO.puts("predict: #{System.monotonic_time(:millisecond) - t0} ms")
 
 IO.puts("\nTop predictions:")
 
