@@ -280,11 +280,36 @@ the search beat the WMMA heuristic on noise). Whole-pipeline `BEAM=2`:
 - Load-phase eager ops were being searched too (one-shot remap kernels;
   unet load 21 s → 161 s). Fixed: `run_node` realizes under
   `Context(BEAM=0)`; compiled/captured executables still honor BEAM.
-- The first full run **hung the AMD KFD queue** mid-search: a candidate
+- Both full runs **hung the AMD KFD queue** mid-search: a candidate
   kernel never signals, the device timeline stalls one packet short, and
-  the worker dies in an endless `Wait timeout: 30000 ms` loop. Search
-  results accumulate in `~/.cache/tinygrad` across attempts, so retries
-  make progress. Treat BEAM as experimental on this driver stack.
+  the worker dies in an endless `Wait timeout: 30000 ms` loop. The second
+  run had load excluded, so the pathological candidate is a generation
+  kernel — it is re-timed (never cached) on every attempt, making the
+  crash deterministic. Whole-pipeline BEAM is unusable on this driver
+  stack until upstream guards candidate timing.
+
+### Model load: safetensors over PyTorch zip ✅ (landed)
+
+With everything else fixed, load (~26 s) split roughly evenly between BEAM
+and worker CPU. eprof showed **~60 % of the BEAM-side CPU inside the
+PyTorch-zip path** — `prim_file:pread` 24 %, `erlang:crc32` 10 %, and
+`Unzip` re-parsing the central directory per tensor read. Bumblebee's
+default params-filename preference picks `pytorch_model.bin` for these
+repos even when safetensors exist; passing `params_filename:
+"model.safetensors"` / `"diffusion_pytorch_model.safetensors"` parses to
+zero-copy binary slices instead. **UNet load 21.2 → 14.9 s; total load
+26.4 → 22.2 s** (warm HF cache). What remains is worker-side: bytes over
+the transport plus one eager realize per remap op (~3.6 ms/param chain —
+a lazy/batched-realize scheme measured 1.9× on that slice, ~2–4 s, not
+landed).
+
+### End state (2026-07-21, pinned tinygrad, RX 7900 XT)
+
+| Phase | Session start | Session end |
+| --- | ---: | ---: |
+| Model load (warm HF cache, incl. safety checker) | ~30 s | **~22 s** |
+| Warm generation, `SD_SAFETY=1` | ~162 s | **~18.8 s** |
+| Warm generation, `SD_SAFETY=0` | ~19.4 s | **~17.3 s** |
 
 So end-to-end for one image went **~10+ min → ~19 s warm** (~82 s first
 generation in a fresh process with a warm kernel disk-cache). During warm
