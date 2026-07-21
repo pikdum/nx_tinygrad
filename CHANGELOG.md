@@ -10,6 +10,18 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 
 ### Added
 
+- **Symbolic while-body JIT** — `while` bodies whose only runtime scalars are
+  dynamic `slice`/`put_slice` starts (SD's denoise loop, iterative linalg) are
+  now TinyJit-captured whole: each start becomes a bound tinygrad `Variable`
+  passed as a jit argument (so replay rebinds it via `var_vals`), with the
+  scalar index chain evaluated eagerly and clamped host-side per iteration.
+  Loop-invariant vars (how Nx carries closed-over weights through `while`)
+  bypass the jit — no per-iteration multi-GB clone of model weights. Any
+  capture/replay failure falls back to node-by-node interpretation (never
+  wrong data), counted in worker stats (`while_steps_*`,
+  `while_jit_fallbacks`) so tinygrad API drift can't silently degrade the
+  fast path.
+
 - **Control flow & multi-output**: `while` (dynamic loops, eager worker-side
   execution — unblocks generation and Axon training loops), `cond` (predicated
   selects), `elem` + tuple-valued blocks (unlocks `top_k` and non-iterative

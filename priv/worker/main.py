@@ -232,7 +232,10 @@ class Handler:
         return {"released": removed}, []
 
     def cmd_stats(self, _args, _blobs):
+        import executable as executable_mod
+
         s = self.stats.as_dict()
+        s.update(executable_mod.WHILE_STATS)
         s.update(
             {
                 "buffer_count": self.registry.count(),

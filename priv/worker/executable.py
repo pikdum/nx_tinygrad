@@ -12,9 +12,10 @@ next execution — see the worker's execute handler.
 from __future__ import annotations
 
 import math
+import sys
 
 import numpy as np
-from tinygrad import Tensor, TinyJit, Device
+from tinygrad import Tensor, TinyJit, Device, Variable
 
 import operations
 from dtype import component_dtype, is_complex, numpy_dtype, tinygrad_dtype, wire_numpy, wire_tensor
@@ -63,6 +64,21 @@ def immutable_copy(t: Tensor, stats=None) -> Tensor:
         return t.clone().realize()
 
 
+def _log(msg: str) -> None:
+    print(f"[nx_tinygrad.worker] {msg}", file=sys.stderr, flush=True)
+
+
+# Per-iteration while-step counters, exposed via the stats command so a lost
+# fast path (e.g. tinygrad API drift breaking symbolic capture) shows up in
+# telemetry instead of silently degrading to interpretation.
+WHILE_STATS = {
+    "while_steps_jit": 0,
+    "while_steps_symbolic": 0,
+    "while_steps_interpreted": 0,
+    "while_jit_fallbacks": 0,
+}
+
+
 def _requires_eager(node) -> bool:
     # Nodes that must read a runtime scalar (breaking static JIT capture).
     if node["op"] == "while":
@@ -72,6 +88,94 @@ def _requires_eager(node) -> bool:
     if node["op"] == "put_slice" and len(node["inputs"]) > 2:
         return True
     return False
+
+
+# First dynamic-start input position per op: slice inputs are [tensor, *starts],
+# put_slice inputs are [target, slice, *starts].
+_DYN_FIRST = {"slice": 1, "put_slice": 2}
+
+
+def _dyn_start_count(node) -> int:
+    first = _DYN_FIRST.get(node["op"])
+    return 0 if first is None else max(0, len(node["inputs"]) - first)
+
+
+def _sub_requires_eager(sub) -> bool:
+    """True when a while body can't be JIT-captured even with symbolic starts:
+    a nested while, or dynamic starts hidden inside a reduce/window_reduce fn
+    (whose evaluation would read runtime scalars mid-trace)."""
+    for node in sub["nodes"]:
+        if node["op"] == "while":
+            return True
+        if node["op"] in ("reduce", "window_reduce"):
+            fn = node["attrs"]["fn"]
+            if _sub_requires_eager(fn) or any(_dyn_start_count(n) for n in fn["nodes"]):
+                return True
+    return False
+
+
+def _symbolic_while_plan(body):
+    """Rewrite a while body so dynamic slice/put_slice starts become symbolic
+    tinygrad Variables, making the whole body TinyJit-capturable.
+
+    Returns ``(sym_body, uses, anc_nodes, anc_consts)``: the rewritten body,
+    one descriptor per Variable use ({"id": start node id, "hi": clamp upper
+    bound, "name": variable name}), and the node/constant subset needed to
+    eagerly evaluate each start's runtime value every iteration.
+    """
+    shapes = {}
+    for inp in body["inputs"]:
+        shapes[inp["id"]] = inp["shape"]
+    for const in body["constants"]:
+        shapes[const["id"]] = const["shape"]
+    for node in body["nodes"]:
+        shapes[node["id"]] = node["shape"]
+
+    uses = []
+    dyn_ids: set[int] = set()
+    new_nodes = []
+    for node in body["nodes"]:
+        if not _dyn_start_count(node):
+            new_nodes.append(node)
+            continue
+        first = _DYN_FIRST[node["op"]]
+        dyn = node["inputs"][first:]
+        dims = shapes[node["inputs"][0]]
+        # The clamp bound per axis: slice windows span `lengths`; put_slice
+        # windows span the slice operand's shape.
+        spans = node["attrs"]["lengths"] if node["op"] == "slice" else shapes[node["inputs"][1]]
+
+        new_starts = []
+        for axis, spec in enumerate(node["attrs"]["starts"]):
+            if "static" in spec:
+                new_starts.append(spec)
+                continue
+            hi = dims[axis] - spans[axis]
+            if hi <= 0:
+                # Nx clamps the start into [0, hi]; hi == 0 pins it statically.
+                new_starts.append({"static": 0})
+                continue
+            start_id = dyn[spec["input"]]
+            uses.append({"id": start_id, "hi": hi, "name": f"nxw{len(uses)}"})
+            dyn_ids.add(start_id)
+            new_starts.append({"symbolic": len(uses) - 1})
+
+        new_node = dict(node)
+        new_node["attrs"] = dict(node["attrs"], starts=new_starts)
+        new_nodes.append(new_node)
+
+    sym_body = dict(body, nodes=new_nodes)
+
+    # Ancestor closure of the start ids (node list is topologically ordered).
+    needed = set(dyn_ids)
+    anc_nodes = []
+    for node in reversed(body["nodes"]):
+        if node.get("id") in needed:
+            anc_nodes.append(node)
+            needed.update(node["inputs"])
+    anc_nodes.reverse()
+    anc_consts = [c for c in body["constants"] if c["id"] in needed]
+    return sym_body, uses, anc_nodes, anc_consts
 
 
 def _decode_value(value):
@@ -185,31 +289,111 @@ class Executable:
             acc = self._interpret(a["fn"], [acc, flat[..., i]])[0]
         return acc
 
-    def _interpret(self, subgraph, params):
+    def _interpret(self, subgraph, params, sym=None):
         # Evaluate a self-contained sub-graph with its loop-var parameters bound
         # to `params` (by input index). Constants may index the shared blob list.
+        # `sym` binds symbolic slice starts (see _symbolic_while_plan) under a
+        # reserved key that cannot collide with the integer node ids.
         env = {c["id"]: _make_constant(c, self.blobs, self.device) for c in subgraph["constants"]}
+        if sym is not None:
+            env["__sym__"] = list(sym)
         for inp in subgraph["inputs"]:
             env[inp["id"]] = params[inp["index"]]
         self._eval_nodes(subgraph["nodes"], env)
         return [env[o["node"]] for o in subgraph["outputs"]]
 
-    def _run_while(self, node, env):
-        state = [env[i].realize() for i in node["inputs"]]
-        cond, body = node["attrs"]["cond"], node["attrs"]["body"]
+    def _make_while_step(self, body, n_state):
+        """Build the per-iteration step function for a while body.
 
-        # The body is a static computation (only the trip count is dynamic), so
-        # JIT-capture it for fast replay — unless it itself needs eager execution
-        # (a nested while or dynamic slice), in which case interpret it directly.
-        if any(_requires_eager(n) for n in body["nodes"]):
-            step = lambda s: self._interpret(body, s)  # noqa: E731
-        else:
-            jit = TinyJit(lambda *s: self._interpret(body, list(s)))
-            step = lambda s: jit(*[t.clone().realize() for t in s])  # noqa: E731
+        Bodies whose only runtime scalars are dynamic slice/put_slice starts
+        are JIT-captured whole, with the starts as bound tinygrad Variables
+        passed as jit call arguments (TinyJit collects bindings from call args
+        into var_vals on every replay). Bodies with no runtime scalars are the
+        degenerate case with zero Variables. Everything else (nested while,
+        dynamic starts inside reduce fns) is interpreted node-by-node.
+
+        Loop-invariant vars — body output j is exactly loop-var input j, which
+        is how Nx carries closed-over constants like model weights through a
+        while — bypass the jit entirely: they are passed as inputs without the
+        per-iteration anti-aliasing clone (they are never jit outputs, so no
+        buffer reuse can touch them) and returned unchanged Python-side.
+        """
+        if _sub_requires_eager(body):
+            return (lambda s: self._interpret(body, s)), "interpret"
+
+        sym_body, uses, anc_nodes, anc_consts = _symbolic_while_plan(body)
+
+        input_id_by_index = {inp["index"]: inp["id"] for inp in body["inputs"]}
+        invariant = {
+            j for j, out in enumerate(body["outputs"]) if input_id_by_index.get(j) == out["node"]
+        }
+
+        def fn(*args):
+            outs = self._interpret(sym_body, list(args[:n_state]), sym=args[n_state:])
+            fixed = []
+            for j, out in enumerate(outs):
+                if j in invariant:
+                    continue
+                # An output that is already realized inside the trace (an
+                # input passed through under a different index, a view of an
+                # input, a constant) schedules no kernel, so TinyJit replay
+                # would return the stale capture-time buffer. clone() forces a
+                # captured copy kernel that reads the replay-time input.
+                if out.uop.base.realized is not None:
+                    out = out.clone()
+                fixed.append(out)
+            return fixed
+
+        jit = TinyJit(fn)
+        const_env = {c["id"]: _make_constant(c, self.blobs, self.device) for c in anc_consts}
+
+        def step(state):
+            # Evaluate just the start-index subgraph eagerly (cheap scalar
+            # chains), clamp host-side, and bind one Variable per use.
+            bound = []
+            if uses:
+                scratch = dict(const_env)
+                for inp in body["inputs"]:
+                    scratch[inp["id"]] = state[inp["index"]]
+                self._eval_nodes(anc_nodes, scratch)
+                for use in uses:
+                    raw = int(scratch[use["id"]].item())
+                    bound.append(Variable(use["name"], 0, use["hi"]).bind(max(0, min(raw, use["hi"]))))
+            inputs = [t if j in invariant else t.clone().realize() for j, t in enumerate(state)]
+            outs = iter(jit(*inputs, *bound))
+            return [state[j] if j in invariant else next(outs) for j in range(n_state)]
+
+        return step, ("symbolic" if uses else "jit")
+
+    def _run_while(self, node, env):
+        # TinyJit input replacement needs inputs backed by real buffers, and
+        # constant-foldable loop-var inits (scalars, iota) have none after
+        # realize(); clone() forces one (the _dummy trick). Doing it once here
+        # keeps invariant vars real-buffered for the whole loop.
+        state = [
+            t if t.uop.base.realized is not None else t.clone().realize()
+            for t in (env[i].realize() for i in node["inputs"])
+        ]
+        cond, body = node["attrs"]["cond"], node["attrs"]["body"]
+        step, kind = self._make_while_step(body, len(state))
 
         # Read the scalar condition each iteration (realizes it), then step.
         while bool(self._interpret(cond, state)[0].item()):
-            state = [t.realize() for t in step(state)]
+            if kind == "interpret":
+                new_state = step(state)
+            else:
+                try:
+                    new_state = step(state)
+                except Exception as exc:  # noqa: BLE001 — capture/replay failure
+                    # tinygrad internals shift between versions; never wrong
+                    # data — fall back to interpretation from the same state.
+                    _log(f"while {kind} JIT step failed ({type(exc).__name__}: {exc}); "
+                         "falling back to interpretation")
+                    WHILE_STATS["while_jit_fallbacks"] += 1
+                    step, kind = (lambda s: self._interpret(body, s)), "interpret"
+                    new_state = step(state)
+            WHILE_STATS[f"while_steps_{'interpreted' if kind == 'interpret' else kind}"] += 1
+            state = [t.realize() for t in new_state]
         return state
 
     def _graph_fn(self, *inputs):

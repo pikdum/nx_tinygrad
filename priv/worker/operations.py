@@ -432,17 +432,30 @@ def _argsort(node, env):
 def _slice(node, env):
     t = _in(node, env, 0)
     dyn = [env[i] for i in node["inputs"][1:]]
+    sym = env.get("__sym__") or []
     lengths = node["attrs"]["lengths"]
     strides = node["attrs"]["strides"]
 
     starts = []
+    symbolic = False
     for axis, spec in enumerate(node["attrs"]["starts"]):
         if "static" in spec:
             starts.append(spec["static"])
+        elif "symbolic" in spec:
+            # A bound tinygrad Variable (clamped at bind time) so the slice
+            # stays JIT-capturable inside a while body.
+            starts.append(sym[spec["symbolic"]])
+            symbolic = True
         else:
             # Dynamic start (a scalar tensor); Nx clamps it so the slice fits.
             raw = int(dyn[spec["input"]].item())
             starts.append(max(0, min(raw, t.shape[axis] - lengths[axis])))
+
+    if symbolic:
+        out = t.shrink(tuple((s, s + l) for s, l in zip(starts, lengths)))
+        if any(st != 1 for st in strides):
+            out = out[tuple(slice(None, None, st) for st in strides)]
+        return out
 
     idx = tuple(slice(s, s + l, st) for s, l, st in zip(starts, lengths, strides))
     return t[idx]
@@ -619,10 +632,16 @@ def _put_slice(node, env):
     target = _in(node, env, 0)
     sl = _in(node, env, 1)
     dyn = [env[i] for i in node["inputs"][2:]]
+    sym = env.get("__sym__") or []
     pad_config = []
     for dim, spec in enumerate(node["attrs"]["starts"]):
-        raw = spec["static"] if "static" in spec else int(dyn[spec["input"]].item())
-        start = max(0, min(int(raw), target.shape[dim] - sl.shape[dim]))
+        if "symbolic" in spec:
+            # A bound tinygrad Variable, already clamped at bind time; pad
+            # accepts symbolic amounts, keeping the body JIT-capturable.
+            start = sym[spec["symbolic"]]
+        else:
+            raw = spec["static"] if "static" in spec else int(dyn[spec["input"]].item())
+            start = max(0, min(int(raw), target.shape[dim] - sl.shape[dim]))
         pad_config.append((start, target.shape[dim] - sl.shape[dim] - start))
     padded = sl.pad(tuple(pad_config))
     mask = (sl * 0 + 1).pad(tuple(pad_config))
