@@ -10,6 +10,17 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 
 ### Added
 
+- **tinygrad pinned to a post-0.13.0 master rev** (`7b05caf`, flake
+  override). tinygrad 0.13.0 miscompiles f16 3×3 convs on the AMD LLVM
+  renderer — NaN with tensor cores, large garbage without — which made SD
+  render black under `SD_TYPE=f16`. The pinned rev fixes the miscompile and
+  its f32 codegen is also ~11 % faster for SD (warm generation 19.4 → 17.3 s
+  on the RX 7900 XT). One worker adaptation was needed and is covered by a
+  regression test: TinyJit on newer tinygrad does not rebind bitcast views
+  of input buffers on replay, so `operations.py` clones realized bitcast
+  sources (caught by our capture validation, never as wrong data). SD in
+  f16 still renders black even with correct convs (unattributed) and its
+  correct f16 conv kernels are currently slower than f32.
 - **Featurizer/evaluator trap fixed in the examples** — Bumblebee servings
   call their featurizer (`NxImage.resize` etc.) outside `Nx.Defn.compile`,
   which lands on `Nx.Defn.Evaluator`/`BinaryBackend`: ~113 s per 512×512

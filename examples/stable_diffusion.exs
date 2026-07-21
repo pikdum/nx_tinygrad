@@ -53,11 +53,12 @@ safety? = System.get_env("SD_SAFETY", "1") == "1"
 
 # SD_TYPE=f16|bf16 casts the clip/unet/vae params device-side at load and runs
 # their compute in that type (Axon mixed-precision policy). Measured on the
-# RX 7900 XT (warm, 20 steps): f32 ~19 s (default, correct); f16 ~16 s but the
-# image comes out black (a model-level overflow — tinygrad's f16 matmul/softmax
-# /layernorm all probe clean); bf16 ~34 s, correct but slow (LLVM emulates
-# scalar bf16, only WMMA is native). The safety checker stays f32 — it is
-# ~free warm and gates is_safe.
+# RX 7900 XT (warm, 20 steps, flake-pinned tinygrad): f32 ~17 s (default,
+# correct); f16 renders BLACK (unattributed; it was tinygrad 0.13's
+# miscompiled f16 convs, but persists with those fixed) and its correct conv
+# kernels are slower than f32 anyway (~24 s); bf16 ~34 s, correct but slow
+# (LLVM emulates scalar bf16, only WMMA is native). The safety checker stays
+# f32 — it is ~free warm and gates is_safe.
 model_type =
   case System.get_env("SD_TYPE", "f32") do
     "f32" -> []

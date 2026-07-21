@@ -7,7 +7,7 @@ Living record of pinned versions and milestone progress. Updated as work lands.
 | Thing                        | Value                                             |
 | ---------------------------- | ------------------------------------------------- |
 | Nx version                   | 0.13.0                                            |
-| tinygrad version             | 0.13.0 (nixpkgs `python3Packages.tinygrad`)       |
+| tinygrad version             | 0.13.0-unstable-2026-07-19 (`7b05caf`, flake-pinned master rev — 0.13.0 miscompiles f16 convs on AMD LLVM) |
 | Python version               | 3.14.6                                            |
 | LLVM version                 | nixpkgs `llvmPackages.llvm` (AMD LLVM renderer)  |
 | Elixir version               | 1.20.2 (`beam29Packages.elixir_1_20`)             |
@@ -48,11 +48,16 @@ it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
   (denoise runs as TinyJit replays at ~1 s/step, 0 fallbacks; bench 27 →
   ~3.5 ms/iter); top-level segment JIT captures the static regions around
   `while` nodes (text encoder / VAE). SD v1.4 warm generation: ~10+ min →
-  **~19 s**, safety checker included — its former ~143 s/image was the
+  **~17 s**, safety checker included — its former ~143 s/image was the
   featurizer's `NxImage.resize` running under `Nx.Defn.Evaluator` on
   `BinaryBackend`; routing plain defn calls through the compiler
   (`Nx.Defn.global_default_options`) makes it ~free. GPU now ~100 % busy
-  during generation. See `docs/performance.md`.
+  during generation. tinygrad is flake-pinned to a post-0.13.0 master rev:
+  0.13.0 miscompiles f16 3×3 convs on the AMD LLVM renderer (NaN/garbage),
+  and the newer rev's f32 codegen is ~11 % faster for SD (19.4 → 17.3 s).
+  SD in f16 still renders black even with correct convs (unattributed;
+  f16 is also slower than f32 there) — `SD_TYPE=f16|bf16` remain
+  experiment knobs, f32 the default. See `docs/performance.md`.
 
 ## Commands / results
 
