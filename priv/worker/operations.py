@@ -913,7 +913,16 @@ def apply(node, env) -> Tensor:
         result = _in(node, env)
     elif op == "bitcast":
         # Reinterpret the bits as the target dtype (no value conversion).
-        result = _in(node, env).bitcast(tinygrad_dtype(node["dtype"]))
+        # A bitcast is a buffer VIEW; a view of a TinyJit *input* buffer is not
+        # rebound by jit input replacement on replay (observed on tinygrad
+        # master: replays return capture-time bytes). Copy realized sources
+        # first — the copy reads the input directly (rebindable) and the
+        # bitcast then views jit-internal data. Unrealized sources are
+        # jit-internal already; views of them are rewritten every replay.
+        src = _in(node, env)
+        if src.uop.base.realized is not None:
+            src = src.clone()
+        result = src.bitcast(tinygrad_dtype(node["dtype"]))
     elif op == "dot":
         result = _dot(node, env)
     elif op == "conv":
