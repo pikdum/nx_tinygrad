@@ -181,3 +181,30 @@ def test_validation_rejects_dangling_reference():
     }
     with pytest.raises(GraphValidationError):
         compile_graph(5, graph, [], "CPU")
+
+
+def test_bitcast_of_input_tracks_fresh_values_across_runs():
+    # Regression: a bitcast is a buffer view, and TinyJit does not rebind a
+    # view of an *input* buffer on replay (tinygrad master) — replays returned
+    # capture-time bytes. operations.py now clones realized bitcast sources.
+    # Two outputs (single and round-tripped bitcast) mirror the Nx test that
+    # first caught this via capture validation.
+    graph = {
+        "version": 1,
+        "inputs": [{"id": 0, "index": 0, "shape": [4], "dtype": "f32"}],
+        "constants": [],
+        "nodes": [
+            {"id": 1, "op": "bitcast", "inputs": [0], "attrs": {}, "shape": [4], "dtype": "s32"},
+            {"id": 2, "op": "bitcast", "inputs": [1], "attrs": {}, "shape": [4], "dtype": "f32"},
+        ],
+        "outputs": [
+            {"node": 1, "shape": [4], "dtype": "s32"},
+            {"node": 2, "shape": [4], "dtype": "f32"},
+        ],
+    }
+    ex = compile_graph(9001, graph, [], "CPU")
+    for seed in (1.0, 2.0, 3.0):
+        values = np.array([seed, -2.0 * seed, 3.5, 0.0], dtype=np.float32)
+        as_int, round_trip = ex.run([Tensor(values)])
+        assert np.array_equal(as_int.numpy(), values.view(np.int32))
+        assert np.array_equal(round_trip.numpy(), values)
