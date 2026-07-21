@@ -74,3 +74,69 @@ behaviour would slot it in), but it does not move the number people care about.
   `TensorRef` NIF calls per input/output.
 - Nothing here is transport-bound, so effort should stay on the Python/tinygrad
   and marshaling sides.
+
+## Large-model / Stable Diffusion breakdown (2026-07-21)
+
+Running `examples/stable_diffusion.exs` (SD v1.4, 20 steps, 1 image) on the RX
+7900 XT is ~50–100× slower end-to-end than ComfyUI-on-ROCm. It is **not one
+bottleneck** — measured per phase (GPU, 512×512, weights preallocated resident):
+
+| Phase | Cost | Where it lives |
+| --- | --- | --- |
+| **Weight load** (`Bumblebee.load_model`) | **~386 s** | Upstream: Bumblebee/Nx `BinaryBackend` |
+| Preallocate (per-tensor upload RPCs) | ~15 s (1022 tensors, 4.13 GB) | `backend.ex` `from_binary` |
+| Compile (first UNet execute, kernel JIT) | ~10–70 s one-time | tinygrad |
+| **Denoise loop** | **~7 s/step, GPU ~94 % idle** | worker `_run_while` eager interpretation |
+
+### 1. Weight load (~386 s) — the dominant cost, and it's upstream
+
+`Bumblebee.load_model` reads the safetensors and remaps params (transpose /
+reshape / f16→f32 upcast of ~1 B parameters) on the pure-Elixir `BinaryBackend`,
+**single-core** (observed: one beam process pegged at 107 % CPU for 6+ minutes,
+no swap). This is inherent to loading a large model without a JIT host backend —
+with EXLA those transforms run compiled/vectorized. nx_tinygrad is not involved
+(the load happens before the compiler). **f16 does not help** — loading with
+`type: :f16` was *slower* (~574 s), since the upcast/cast happens regardless.
+Real fixes are upstream-shaped: a compiled host backend for load, or making
+nx_tinygrad's backend support the eager movement ops Bumblebee needs at load
+(`transpose`/`reshape`/`as_type`) so params load resident on-device.
+
+### 2. Denoise loop (~7 s/step, GPU idle) — the compute cost we own
+
+SD's whole graph runs **eagerly interpreted** (node-by-node Python dispatch, no
+TinyJit capture) because the denoise `while` body contains a **dynamic slice**
+(the scheduler indexes its alpha/sigma/timestep arrays by the step counter),
+which `_requires_eager` taints — see `executable.py` `_run_while`. So the entire
+UNet (thousands of ops) is re-interpreted every step. Measured overhead is
+~0.9 ms per body op per iteration (synthetic repro), which is why the GPU sits
+~94 % idle: the cost is host-side dispatch, not kernels.
+
+**Prototype fix (not landed):** partition the loop body — JIT-capture the static
+sub-body (the UNet, which depends only on carried latents + invariant weights,
+not the runtime index) and interpret only the dynamic-slice-tainted glue (the
+cheap scheduler math). A synthetic SD-shaped loop (big static compute, then
+dynamic scheduler glue) went 27 → 9 ms/iter (~3×) with exact parity, and SD's
+far larger body should gain much more. **Why it's not landed:** it produced
+*silent wrong results* for the iterative-linalg `while`s (cholesky/svd/eigh,
+which read *and* update carried state — a matrix — across iterations by a dynamic
+index). Restricting to read-only dynamic slices (excluding `put_slice`) did NOT
+fix it — those loops use read slices too — so the partition is unsound for any
+loop that carries evolving state read via a dynamic index, not just a narrow
+op-based subset. A cheap 2-iteration replay-validation can't catch divergence
+that first appears at iteration 3+, so it can't be used as the safety net either.
+Landing it needs a correctness-robust design: e.g. a full static-region JIT with
+proper multi-input capture validation (like `_capture`'s `_dummy`-seeded replay
+checks), or tinygrad symbolic `Variable` indexing so the whole body JIT-captures
+(works eagerly here but currently breaks under `TinyJit` — `KeyError`). The
+working prototype (partition + snapshot-safe validation) is preserved for review.
+
+Attempted and rejected: making the dynamic slice itself JIT-capturable via a
+tinygrad symbolic `Variable` — `t.shrink(((v, v+len),))` binds correctly eagerly,
+but `TinyJit` fails to propagate the binding (`KeyError`) in this tinygrad.
+
+### 3. Preallocate (~15 s) — minor, byte-bound
+
+`Nx.backend_copy` uploads each of ~1022 param tensors as its own `from_binary`
+RPC. Per-RPC overhead is ~44 µs (~45 ms total), so the ~15 s is the 4.13 GB byte
+movement + per-tensor `realize`, not the round-trip count — batching RPCs would
+not help much.
