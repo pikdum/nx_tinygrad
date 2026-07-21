@@ -5,7 +5,8 @@
 #   NX_TINYGRAD_DEVICE="KFD+AMD:LLVM" elixir examples/stable_diffusion.exs "a prompt"  # AMD GPU
 #
 # Env knobs: SD_NUM_STEPS (default 20), SD_NUM_IMAGES (default 1), SD_RUNS
-# (default 1 — extra runs reuse the compiled graphs and show the warm cost).
+# (default 1 — extra runs reuse the compiled graphs and show the warm cost),
+# SD_SAFETY=0 to skip the safety checker (a whole CLIP-vision pass per image).
 #
 # Downloads ~5 GB from Hugging Face on first run. The weights (~4 GB, mostly the
 # UNet) load DIRECTLY onto the execution worker: checkpoint bytes upload once
@@ -34,6 +35,7 @@ device = System.get_env("NX_TINYGRAD_DEVICE", "CPU")
 num_steps = String.to_integer(System.get_env("SD_NUM_STEPS", "20"))
 num_images = String.to_integer(System.get_env("SD_NUM_IMAGES", "1"))
 num_runs = String.to_integer(System.get_env("SD_RUNS", "1"))
+safety? = System.get_env("SD_SAFETY", "1") == "1"
 
 prompt =
   case System.argv() do
@@ -63,26 +65,39 @@ load_t0 = System.monotonic_time(:millisecond)
   )
 
 {:ok, scheduler} = Bumblebee.load_scheduler({:hf, repo, subdir: "scheduler"})
-{:ok, featurizer} = Bumblebee.load_featurizer({:hf, repo, subdir: "feature_extractor"})
 
-{:ok, safety_checker} =
-  Bumblebee.load_model({:hf, repo, subdir: "safety_checker"}, backend: param_backend)
+safety_opts =
+  if safety? do
+    {:ok, featurizer} = Bumblebee.load_featurizer({:hf, repo, subdir: "feature_extractor"})
+
+    {:ok, safety_checker} =
+      Bumblebee.load_model({:hf, repo, subdir: "safety_checker"}, backend: param_backend)
+
+    [safety_checker: safety_checker, safety_checker_featurizer: featurizer]
+  else
+    []
+  end
 
 serving =
-  Bumblebee.Diffusion.StableDiffusion.text_to_image(clip, unet, vae, tokenizer, scheduler,
-    num_steps: num_steps,
-    num_images_per_prompt: num_images,
-    safety_checker: safety_checker,
-    safety_checker_featurizer: featurizer,
-    preallocate_params: true,
-    compile: [batch_size: 1, sequence_length: 60],
-    defn_options: [
-      compiler: NxTinygrad.Compiler,
-      device: device,
-      output: :host,
-      execute_timeout: 1_200_000,
-      compile_timeout: 1_200_000
-    ]
+  Bumblebee.Diffusion.StableDiffusion.text_to_image(
+    clip,
+    unet,
+    vae,
+    tokenizer,
+    scheduler,
+    [
+      num_steps: num_steps,
+      num_images_per_prompt: num_images,
+      preallocate_params: true,
+      compile: [batch_size: 1, sequence_length: 60],
+      defn_options: [
+        compiler: NxTinygrad.Compiler,
+        device: device,
+        output: :host,
+        execute_timeout: 1_200_000,
+        compile_timeout: 1_200_000
+      ]
+    ] ++ safety_opts
   )
 
 IO.puts("model load: #{System.monotonic_time(:millisecond) - load_t0} ms (device-resident)")
@@ -109,7 +124,8 @@ IO.puts(
 
 results
 |> Enum.with_index()
-|> Enum.each(fn {%{image: image, is_safe: is_safe}, i} ->
+|> Enum.each(fn {%{image: image} = result, i} ->
+  is_safe = Map.get(result, :is_safe, "n/a")
   path = "sd_out_#{i}.png"
   image |> StbImage.from_nx() |> StbImage.write_file!(path)
   IO.puts("wrote #{path}  (#{inspect(image.shape)}, is_safe=#{is_safe})")

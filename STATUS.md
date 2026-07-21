@@ -42,6 +42,15 @@ it straight through as `DEV` and creates tensors on the backend (`AMD`). The old
   **Stable Diffusion v1.4 text-to-image** (CLIP + UNet + VAE). Large models are
   made runnable by weight residency: `preallocate_params: true` uploads weights
   once and passes them by handle, rather than re-shipping them every call.
+- [x] **M10** — large-model performance: eager device-side backend ops
+  (`run_node`) make Bumblebee weight loads land resident (~386 s → ~30 s for
+  SD v1.4); symbolic-`Variable` while-body JIT captures dynamic-slice loops
+  (denoise runs as TinyJit replays at ~1 s/step, 0 fallbacks; bench 27 →
+  ~3.5 ms/iter); top-level segment JIT captures the static regions around
+  `while` nodes (text encoder / VAE). SD v1.4 warm generation: ~10+ min →
+  **~19 s** (`SD_SAFETY=0`; the safety-checker pass costs ~143 s/image and is
+  the top remaining target). GPU now ~100 % busy during generation. See
+  `docs/performance.md`.
 
 ## Commands / results
 

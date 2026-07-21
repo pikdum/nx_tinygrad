@@ -78,15 +78,19 @@ behaviour would slot it in), but it does not move the number people care about.
 ## Large-model / Stable Diffusion breakdown (2026-07-21)
 
 Running `examples/stable_diffusion.exs` (SD v1.4, 20 steps, 1 image) on the RX
-7900 XT is ~50–100× slower end-to-end than ComfyUI-on-ROCm. It is **not one
-bottleneck** — measured per phase (GPU, 512×512, weights preallocated resident):
+7900 XT was initially ~50–100× slower end-to-end than ComfyUI-on-ROCm. It was
+**not one bottleneck** — measured per phase (GPU, 512×512, weights
+preallocated resident):
 
-| Phase | Cost | Where it lives |
+| Phase | Cost (before) | Where it lived |
 | --- | --- | --- |
 | **Weight load** (`Bumblebee.load_model`) | **~386 s** | Upstream: Bumblebee/Nx `BinaryBackend` |
 | Preallocate (per-tensor upload RPCs) | ~15 s (1022 tensors, 4.13 GB) | `backend.ex` `from_binary` |
 | Compile (first UNet execute, kernel JIT) | ~10–70 s one-time | tinygrad |
 | **Denoise loop** | **~7 s/step, GPU ~94 % idle** | worker `_run_while` eager interpretation |
+
+All three were fixed the same day — see “What fixed it” below for the current
+numbers; the per-phase analyses that follow are kept for the record.
 
 ### 1. Weight load (~386 s) — the dominant cost, and it's upstream
 
@@ -140,3 +144,80 @@ but `TinyJit` fails to propagate the binding (`KeyError`) in this tinygrad.
 RPC. Per-RPC overhead is ~44 µs (~45 ms total), so the ~15 s is the 4.13 GB byte
 movement + per-tensor `realize`, not the round-trip count — batching RPCs would
 not help much.
+
+## What fixed it (same day)
+
+Three changes landed; all validated by `mix test` (incl. the iterative-linalg
+whiles), `worker_tests/`, the GPU suite, and coherent SD images:
+
+1. **Eager device-side ops on `NxTinygrad.Backend`** (worker `run_node`
+   command). `Bumblebee.load_model(..., backend: {NxTinygrad.Backend,
+   worker: w})` uploads checkpoint bytes once and remaps every param
+   (transpose / reshape / f16→f32 upcast) on the GPU; params land resident.
+   **Load: ~386 s → ~30 s** (UNet ~20 s, CLIP ~3 s, VAE ~1.5 s — now
+   I/O-bound: unpickle + one pass of bytes over the transport). The separate
+   preallocate pass became a ~free device-side handle mint (same-worker
+   `backend_copy` no longer round-trips bytes). Gotcha that cost a debugging
+   round: movement-op results are tinygrad *views*; TinyJit executables reject
+   view-shaped inputs against their plain-buffer capture dummies ("args
+   mismatch in JIT"), so `run_node` canonicalizes results with `contiguous()`.
+
+2. **Symbolic while-body JIT** (`_make_while_step`). The failed `Variable`
+   experiment above had one missing piece: the bound Variable must be passed
+   **as a TinyJit call argument** — `TinyJit.__call__` collects `var_vals`
+   only from args (`jit.py` `_prepare_jit_inputs`), so a closed-over Variable
+   KeyErrors on replay. With that, the *whole* body captures — dynamic
+   `slice`/`put_slice` starts become bound Variables, clamped host-side per
+   iteration to Nx semantics — which is sound where the body partition was
+   not (no partition boundary; iterative linalg passes exactly). Two
+   supporting details: loop-invariant vars (Nx hoists closed-over weights
+   into loop vars) bypass the jit — no multi-GB clone per iteration — and
+   outputs already realized inside the trace (passthroughs, views, constants)
+   are `clone()`d so replay can't return stale capture-time buffers. Any
+   capture/replay failure falls back to interpretation (never wrong data) and
+   counts in worker stats (`while_steps_*`, `while_jit_fallbacks`). Step
+   functions are cached on the executable across executes.
+   **Bench: 27 → ~3.5 ms/iter; SD denoise runs 100 % symbolic-JIT steps, 0
+   fallbacks.**
+
+3. **Top-level segment JIT** (`_plan_segments`). A while node used to taint
+   the *entire* graph eager, so SD's text encoder and VAE decoder were
+   re-interpreted node-by-node every execute. The top-level node list is now
+   split at eager nodes (while / dynamic slice); each static segment between
+   them is TinyJit-captured with the same invariant/stale-output machinery
+   and cached across executes (`graph_segments_*` stats).
+
+Measured on the RX 7900 XT (20 steps, 512×512, one process):
+
+| Phase | Before | After |
+| --- | ---: | ---: |
+| Model load (device-resident) | ~401 s | **~30 s** (~25 s without the safety checker) |
+| Generation 1 (kernel JIT + captures, one-time, cold disk cache) | ~10 min+ | ~241 s |
+| Warm generation, with safety checker | — | ~162 s |
+| **Warm generation, `SD_SAFETY=0`** | — | **~19 s** |
+
+Two decompositions from varying `SD_NUM_STEPS` and `SD_SAFETY`:
+
+- The denoise loop costs **~1.0 s/step** as symbolic-JIT replays
+  (5-step vs 20-step delta), 0 fallbacks. The 15 interpreted while-steps per
+  generation are an outer scheduler loop that carries a nested while, which is
+  expected to interpret.
+- The **safety checker costs ~143 s per image** — a whole CLIP-vision pass
+  plus its host-side featurizer — dwarfing the diffusion itself. The example
+  exposes `SD_SAFETY=0` to skip it; attributing/host-optimizing that pass is
+  the top follow-up.
+
+So end-to-end for one image went **~10+ min → ~19 s warm** (~82 s first
+generation in a fresh process with a warm kernel disk-cache). During warm
+generations the GPU sits at ~100 % busy (it was ~94 % idle before): the
+remaining cost is kernel execution, not host dispatch. Next levers are
+tinygrad-side kernel quality — `BEAM=1/2` kernel search (slower first compile,
+faster kernels; the env var passes through to the worker) and f16 weights.
+First-generation cost is dominated by LLVM kernel compilation, disk-cached in
+`~/.cache/tinygrad` across processes.
+
+BEAM-side compile phases (defn tracing, lowering, cache key, wire encoding)
+were measured **sub-second** for the full SD graph — `compiler.ex` logs any
+phase over 1 s at debug level so a regression is visible. (An apparent
+“8-minute BEAM hang” during debugging turned out to be Elixir formatting a
+JitError message containing megabytes of UOp pretty-print.)

@@ -31,7 +31,15 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
   capture/replay failure falls back to node-by-node interpretation (never
   wrong data), counted in worker stats (`while_steps_*`,
   `while_jit_fallbacks`) so tinygrad API drift can't silently degrade the
-  fast path.
+  fast path. Step functions are cached on the executable, so later executes
+  skip re-capture.
+- **Top-level segment JIT for eager graphs** — a `while` (or top-level dynamic
+  slice) no longer taints the whole graph into node-by-node interpretation:
+  the node list is split at eager nodes and every static segment between them
+  (SD's text encoder and VAE decoder around the denoise loop) is
+  TinyJit-captured with the same stale-output/duplicate-input protections,
+  cached across executes, with per-segment interpretation fallback
+  (`graph_segments_*` stats).
 
 - **Control flow & multi-output**: `while` (dynamic loops, eager worker-side
   execution — unblocks generation and Axon training loops), `cond` (predicated
