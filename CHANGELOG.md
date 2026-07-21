@@ -10,6 +10,17 @@ primitive is verified against `Nx.BinaryBackend` in `test/differential_test.exs`
 
 ### Added
 
+- **Featurizer/evaluator trap fixed in the examples** — Bumblebee servings
+  call their featurizer (`NxImage.resize` etc.) outside `Nx.Defn.compile`,
+  which lands on `Nx.Defn.Evaluator`/`BinaryBackend`: ~113 s per 512×512
+  image for SD's safety checker, ~33 s for ResNet-50 classification. The
+  examples now set `Nx.Defn.global_default_options(compiler:
+  NxTinygrad.Compiler, ...)` so plain defn calls compile too (~0.5 s warm).
+  SD warm generation with the safety checker: ~162 s → **~19 s** — the same
+  as with it disabled. The SD example also prints per-model load times and
+  gained an `SD_TYPE=f16|bf16` experiment knob (f16 currently yields a black
+  image — norm-layer overflow; bf16 is correct but slower since the LLVM
+  renderer emulates scalar bf16).
 - **Eager operations on `NxTinygrad.Backend`** — most Nx ops now run eagerly
   on the device: each call ships one graph-IR node to the worker (`run_node`
   command), applied through the same operation table compiled graphs use, so
