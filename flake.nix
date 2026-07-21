@@ -16,19 +16,62 @@
       elixir = beam.elixir_1_20;
       erlang = beam.erlang;
 
-      # Worker Python environment. We deliberately use plain nixpkgs tinygrad
-      # (rocmSupport defaults to false), so the closure contains NO ROCm/HIP/
-      # comgr. The AMD backend runs through tinygrad's native KFD driver and
-      # compiles kernels with libLLVM through DEV=KFD+AMD:LLVM, whose path nixpkgs
-      # already patches into tinygrad unconditionally.
+      # tinygrad pinned to a post-0.13.0 master rev: the 0.13.0 release
+      # miscompiles f16 convs on the AMD LLVM renderer (NaN / garbage — SD in
+      # f16 rendered black); this rev is verified clean (worker_tests, mix
+      # test, GPU suite, SD parity). Still ROCm-free (rocmSupport stays off).
+      # nixpkgs' patches target the 0.13.0 tree, so we redo the library-path
+      # pinning with substitutions matching the master layout; master also
+      # honors LIBC_PATH/LLVM_PATH env overrides at runtime.
+      tinygradPinned = pkgs.python3Packages.tinygrad.overrideAttrs (old: {
+        version = "0.13.0-unstable-2026-07-19";
+        src = pkgs.fetchFromGitHub {
+          owner = "tinygrad";
+          repo = "tinygrad";
+          rev = "7b05caf5c5c58a54a82bf1a987a6b7ba5a3f2aa4";
+          hash = "sha256-u4oRiCuK9QQS8Drc044HnDAqN2DmFtpQz9Wt6WSX2Gk=";
+        };
+        patches = [ ];
+        postPatch = ''
+          substituteInPlace tinygrad/runtime/autogen/libc.py \
+            --replace-fail \
+              "dll = c.DLL('libc', 'c', use_errno=True)" \
+              "dll = c.DLL('libc', '${pkgs.lib.getLib pkgs.stdenv.cc.libc}/lib/libc.so.6', use_errno=True)"
+          substituteInPlace tinygrad/runtime/autogen/llvm.py \
+            --replace-fail \
+              "else ['LLVM', 'LLVM-21'" \
+              "else ['${pkgs.lib.getLib pkgs.llvmPackages.llvm}/lib/libLLVM.so', 'LLVM-21'"
+          substituteInPlace tinygrad/runtime/autogen/libclang.py \
+            --replace-fail \
+              "else ['clang', 'clang-21'" \
+              "else ['${pkgs.lib.getLib pkgs.llvmPackages.libclang}/lib/libclang.so', 'clang-21'"
+          # The CPU renderer shells out to a C compiler. Its default reads
+          # $CC, which dev shells commonly set to a gcc wrapper that rejects
+          # clang-style --target flags — pin nix clang under our own var.
+          substituteInPlace tinygrad/runtime/support/compiler_cpu.py \
+            --replace-fail \
+              "getenv(\"CC\", 'clang')" \
+              "getenv(\"NX_TINYGRAD_CC\", '${pkgs.lib.getExe pkgs.llvmPackages.clang-unwrapped}')"
+        '';
+        # Master's test suite is not our gate; the flake's python-tests check
+        # runs the worker suite instead. buildPythonPackage runs pytest in the
+        # installCheck phase, so that is the flag to clear on an override.
+        doCheck = false;
+        doInstallCheck = false;
+      });
+
+      # Worker Python environment. Plain nixpkgs tinygrad derivation (with the
+      # src/pin overrides above), so the closure contains NO ROCm/HIP/comgr.
+      # The AMD backend runs through tinygrad's native KFD driver and compiles
+      # kernels with the pinned libLLVM through DEV=KFD+AMD:LLVM.
       workerPython = pkgs.python3.withPackages (ps: [
-        ps.tinygrad
+        tinygradPinned
         ps.numpy
       ]);
 
       # Same interpreter plus test tooling, for `nix flake check` python tests.
       workerPythonTest = pkgs.python3.withPackages (ps: [
-        ps.tinygrad
+        tinygradPinned
         ps.numpy
         ps.pytest
       ]);
@@ -107,7 +150,7 @@
           export PATH="$MIX_HOME/bin:$HEX_HOME/bin:$PATH"
           echo "nx_tinygrad devshell"
           echo "  elixir ${elixir.version} / erlang ${erlang.version}"
-          echo "  worker python: ${workerPython}/bin/python (tinygrad ${pkgs.python3Packages.tinygrad.version}, no ROCm)"
+          echo "  worker python: ${workerPython}/bin/python (tinygrad ${tinygradPinned.version}, no ROCm)"
         '';
       };
 
