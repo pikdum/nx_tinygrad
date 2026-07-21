@@ -234,6 +234,58 @@ in the warm state. Any Bumblebee serving with a featurizer (image
 classification, embeddings, …) hits this same evaluator trap; the
 global-default-options line is the general cure.
 
+## Kernel-level experiments (2026-07-21, session 3)
+
+With the host-side costs gone, warm SD time ≈ 20 × the denoise step ≈ pure
+kernel execution. Three levers were tested; the tinygrad pin moved.
+
+### tinygrad bump: 0.13.0 → master `7b05caf` ✅ (landed)
+
+tinygrad 0.13.0 **miscompiles f16 3×3 convs on the AMD LLVM renderer**:
+`(2,320,64,64) ⊛ (320,320,3,3)` in f16 returns NaN with tensor cores and
+~63× rel-err garbage with `TC=0` (matmuls and 1×1 convs are fine; the CPU
+device is fine). Master fixes it (rel err 4e-4), and its f32 codegen is also
+faster: **SD warm generation 19.4 → 17.3 s** (~11%). The flake now pins that
+rev via `overrideAttrs` (see `flake.nix` — nixpkgs' 0.13.0 patches don't
+apply to the master tree, so the override re-pins libc/LLVM/libclang paths
+and routes the CPU renderer's compiler to `NX_TINYGRAD_CC`/clang; dev-shell
+`CC=gcc` rejects clang-style `--target` flags).
+
+One worker adaptation (caught by capture validation as a `CompileError`,
+never wrong data): newer TinyJit does not rebind **bitcast views of input
+buffers** on replay — replays returned capture-time bytes. `operations.py`
+now clones realized bitcast sources; regression test in
+`worker_tests/test_compiler.py`.
+
+### f16 / bf16 ❌ (documented knobs, not defaults)
+
+- **f16** (`SD_TYPE=f16`): ~19% faster on 0.13 (15.8 s) but the image is
+  black — originally the conv miscompile above. On master, convs are correct
+  but SD f16 **still renders black** (unattributed — single-forward UNet f16
+  already NaNs; f16-only-dense is clean at 2.5e-3 rel err, f16-only-conv
+  NaNs on 0.13) and master's correct f16 conv kernels are *slower* than f32
+  (23.9 s). Chase again on future tinygrad bumps.
+- **bf16**: numerically fine (coherent image) but ~34 s — the LLVM renderer
+  emulates scalar bf16 (only WMMA is native).
+- 2048² matmul probes (RX 7900 XT): f32 ~5.7 TFLOPS, f16 ~26 TFLOPS (WMMA)
+  on both tinygrad versions — the f16 potential is real if the black-image
+  numerics get attributed.
+
+### BEAM kernel search ⚠️ (crashes mid-search on this stack)
+
+`BEAM=1/2` passes through the Port env to the worker. Single-kernel probes:
+f32 matmul 5.7 → 8.6 TFLOPS (+50%); f16 matmul got *worse* (26 → 15 TFLOPS —
+the search beat the WMMA heuristic on noise). Whole-pipeline `BEAM=2`:
+
+- Load-phase eager ops were being searched too (one-shot remap kernels;
+  unet load 21 s → 161 s). Fixed: `run_node` realizes under
+  `Context(BEAM=0)`; compiled/captured executables still honor BEAM.
+- The first full run **hung the AMD KFD queue** mid-search: a candidate
+  kernel never signals, the device timeline stalls one packet short, and
+  the worker dies in an endless `Wait timeout: 30000 ms` loop. Search
+  results accumulate in `~/.cache/tinygrad` across attempts, so retries
+  make progress. Treat BEAM as experimental on this driver stack.
+
 So end-to-end for one image went **~10+ min → ~19 s warm** (~82 s first
 generation in a fresh process with a warm kernel disk-cache). During warm
 generations the GPU sits at ~100 % busy (it was ~94 % idle before): the
